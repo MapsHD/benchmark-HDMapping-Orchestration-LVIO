@@ -1,1 +1,1 @@
-# benchmark-HDMapping-Orchestration-LVIO
+# benchmark-HDMapping-Orchestration-LVIO (LiDAR-Visual-Inertial Odometry)
