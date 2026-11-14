@@ -3,7 +3,7 @@
 #
 # Build docker image :
 # docker build --no-cache -t coin-lio_noetic .
-# (the benchmark builds it with build_images_step2/build_images_step2.sh)
+# (the benchmark builds it with steps/2_build_images/build_images.sh)
 #
 # Give docker access to display:
 # xhost +local:docker

@@ -3,10 +3,10 @@
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-# shellcheck source=../algos_lib.sh
-source "$SCRIPT_DIR/../algos_lib.sh"
+# shellcheck source=../../algos_lib.sh
+source "$SCRIPT_DIR/../../algos_lib.sh"
 
-IMAGE_NAME="lvio-prepare"   # Python + rosbags + numpy + OpenCV, built from prepare_data_step1/
+IMAGE_NAME="lvio-prepare"   # Python + rosbags + numpy + OpenCV, built from steps/1_prepare_data/
 DATA_DIR="$LVIO_ROOT/datasets/COCO"
 COMMON_DIR=""
 RESULTS_DIR="$LVIO_ROOT/results"
@@ -68,7 +68,7 @@ SUMMARY="$RESULTS_DIR/export_summary.csv"
 [ -f "$SUMMARY" ] || echo "finished_at,sequence,algorithm,status,seconds,output" > "$SUMMARY"
 
 echo "Building helper image '$IMAGE_NAME'..."
-docker build -q -t "$IMAGE_NAME" "$LVIO_ROOT/prepare_data_step1" >/dev/null || exit 1
+docker build -q -t "$IMAGE_NAME" "$LVIO_ROOT/steps/1_prepare_data" >/dev/null || exit 1
 
 # last_run_status <sequence> <id>: status of the latest Step 3 run (empty if none is listed)
 last_run_status() {

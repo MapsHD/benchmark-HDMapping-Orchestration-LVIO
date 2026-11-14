@@ -1,6 +1,6 @@
 #!/bin/bash
 # Run LVI-SAM on one common bag (see NOTES.md).
-# Usage: run.sh <common_bag> <output_dir>     (LVIO_RVIZ=1 to show RViz)
+# Usage: run.sh <common_bag> <output_dir>     (shows RViz; LVIO_RVIZ=0 to run headless)
 HERE="$(cd "$(dirname "$0")" && pwd)"
 
 export LVIO_RUN_SCRIPT="$0"

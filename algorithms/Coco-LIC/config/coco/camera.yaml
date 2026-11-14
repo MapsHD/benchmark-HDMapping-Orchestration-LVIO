@@ -2,7 +2,7 @@
 image_topic: /lvio/cam0_rect  # suffix "compressed" omitted: Coco-LIC reads <topic>/compressed too
 image_width: 720
 image_height: 540
-# rectified cam0 (prepare_data_step1/coco_calibration.yaml, cam0_rect), no distortion
+# rectified cam0 (steps/1_prepare_data/coco_calibration.yaml, cam0_rect), no distortion
 cam_fx: 272.29
 cam_fy: 273.70
 cam_cx: 357.52

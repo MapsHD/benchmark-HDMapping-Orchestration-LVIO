@@ -1,8 +1,8 @@
 # Helper image for Step 1 (common-bag preparation) and Step 4 (export of trajectories and
 # maps). No ROS: the bags are read and written with the pure-Python rosbags library.
 #
-# Built and used by prepare_data_step1.sh and export_step4/export_step4.sh:
-#   docker build -t lvio-prepare prepare_data_step1
+# Built and used by prepare_data.sh and steps/4_export/export.sh:
+#   docker build -t lvio-prepare steps/1_prepare_data
 #
 # The scripts are mounted at run time (/app), so editing them needs no rebuild.
 # Versions are pinned to the ones the converter was tested with.

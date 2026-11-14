@@ -25,6 +25,7 @@ image, and collects their trajectories and maps. It is the LVIO counterpart of
 
 - [Repository layout](#repository-layout)
 - [0. Dataset and prerequisites](#0-dataset-and-prerequisites)
+  - [Validate and clean](#validate-and-clean)
 - [1. Make scripts executable](#1-make-scripts-executable)
 - [2. Run](#2-run)
   - [2.1 Full automation](#21-full-automation)
@@ -44,17 +45,22 @@ image, and collects their trajectories and maps. It is the LVIO counterpart of
 ├── algorithms.conf                 # algorithms: distro | dir | id | input
 ├── sequences.conf                  # sequences: id | original bag
 ├── algos_lib.sh                    # readers for both .conf files (ONLY_ALGOS / ONLY_SEQUENCES)
-├── start_benchmark.sh              # Steps 1-3 in one go
-├── prepare_data_step1/             # Step 1: original bag -> common ROS 1 bag
-│   ├── prepare_data_step1.sh
-│   ├── make_common_bag.py          #   converter (rosbags + OpenCV, no ROS needed)
-│   ├── coco_calibration.yaml       #   cam0 calibration and the rectified-camera intrinsics
-│   └── Dockerfile                  #   helper image lvio-prepare
-├── build_images_step2/             # Step 2: docker build of every algorithm
-├── run_benchmark_step3/            # Step 3: every algorithm on every sequence
-├── export_step4/                   # Step 4: trajectories -> TUM, maps -> PLY (Python, no ROS)
-│   ├── export_step4.sh
-│   └── export_results.py
+├── start_benchmark.sh              # validate.sh, then Steps 1-4 in one go
+├── validate.sh                     # checks Docker and the COCO dataset (read-only)
+├── clean.sh                        # removes the outputs of all steps (asks first)
+├── steps/
+│   ├── 1_prepare_data/             # Step 1: original bag -> common ROS 1 bag
+│   │   ├── prepare_data.sh
+│   │   ├── make_common_bag.py      #   converter (rosbags + OpenCV, no ROS needed)
+│   │   ├── coco_calibration.yaml   #   cam0 calibration and the rectified-camera intrinsics
+│   │   └── Dockerfile              #   helper image lvio-prepare (Steps 1 and 4)
+│   ├── 2_build_images/
+│   │   └── build_images.sh         # Step 2: docker build of every algorithm
+│   ├── 3_run_benchmark/
+│   │   └── run_benchmark.sh        # Step 3: every algorithm on every sequence
+│   └── 4_export/                   # Step 4: trajectories -> TUM, maps -> PLY (Python, no ROS)
+│       ├── export.sh
+│       └── export_results.py
 ├── common/                         # generic Docker / ROS 1 session used by every run.sh
 ├── algorithms/<ALGORITHM>/
 │   ├── Dockerfile
@@ -91,9 +97,43 @@ The expected layout is in [datasets/README.md](datasets/README.md).
 - Internet access for the image builds (algorithm sources are cloned from GitHub).
 - Disk space: about **65 GB** for the four common bags (uncompressed), plus 6–9 GB per algorithm
   image (≈ 36 GB for all five).
-- Optional: an X session for RViz (`--rviz`).
+- An X session: every run shows RViz by default, and the containers use your display
+  (`xhost +local:docker`, from `x11-xserver-utils`). For headless runs, pass `--no-rviz`.
 - Optional: for Step 1 without Docker (`--no-docker`), Python 3 with
   `rosbags==0.11.9 numpy opencv-python-headless PyYAML`.
+
+## Validate and clean
+
+[validate.sh](validate.sh) checks:
+- Docker: the `docker` command, a running daemon, and access without `sudo`;
+- the COCO dataset: every original bag of [sequences.conf](sequences.conf) is in `datasets/COCO/`
+  and is a readable ROS 1 bag.
+
+It changes nothing and exits 1 if a check fails. `start_benchmark.sh` runs it before Step 1;
+run it yourself when you run the steps one by one. It honours `ONLY_SEQUENCES` and takes
+`--data-dir DIR`.
+
+```shell
+./validate.sh
+```
+
+[clean.sh](clean.sh) removes what the steps produced:
+- this benchmark's Docker images: `lvio-prepare` and the five `<id>_<distro>` images, no others;
+- the common bags of Step 1 (`datasets/COCO/common-ros1/`, about 59 GB);
+- the results of Steps 3 and 4 (everything in `results/`).
+
+It keeps:
+- the original bags, `cam_calibration/` and `ground_truth/`;
+- the repository and `notes/`;
+- Docker's build cache (`docker builder prune` frees that, for every build on the machine).
+
+It lists every target with its size, refuses to run while a benchmark container is running, and
+asks you to type `CLEAN`.
+
+```shell
+./clean.sh --dry-run    # only list what would be removed
+./clean.sh
+```
 
 # 1. Make scripts executable
 
@@ -101,10 +141,10 @@ The scripts carry the executable bit. If your copy lost it:
 
 ```shell
 cd mw-benchmark-HDMapping-Orchestration-LVIO
-chmod +x start_benchmark.sh algos_lib.sh common/*.sh \
-    prepare_data_step1/prepare_data_step1.sh prepare_data_step1/make_common_bag.py \
-    build_images_step2/build_images_step2.sh run_benchmark_step3/run_benchmark_step3.sh \
-    export_step4/export_step4.sh export_step4/export_results.py \
+chmod +x start_benchmark.sh validate.sh clean.sh algos_lib.sh common/*.sh \
+    steps/1_prepare_data/prepare_data.sh steps/1_prepare_data/make_common_bag.py \
+    steps/2_build_images/build_images.sh steps/3_run_benchmark/run_benchmark.sh \
+    steps/4_export/export.sh steps/4_export/export_results.py \
     algorithms/*/run.sh algorithms/LVI-SAM/lvio/lvio_imu_virtual_frame.py
 ```
 
@@ -119,14 +159,17 @@ the `id` column of [sequences.conf](sequences.conf). An unknown id aborts and pr
 ```shell
 ./start_benchmark.sh                       # all algorithms, all sequences
 ./start_benchmark.sh fast-livo2 r3live     # only these algorithms
-ONLY_SEQUENCES="stairs" ./start_benchmark.sh --rviz
+ONLY_SEQUENCES="stairs" ./start_benchmark.sh --no-rviz   # headless
 ```
+
+`start_benchmark.sh` first runs `validate.sh` and stops if it fails. Unless `--no-rviz` is
+given, it also stops at once when there is no X display.
 
 | Argument | Purpose | Default |
 | --- | --- | --- |
 | `algorithm-id ...` | restrict Steps 2, 3 and 4 to these algorithms | all |
 | `--force` | Step 3: delete and redo existing results | skip existing |
-| `--rviz` | Step 3: show RViz for every run | off |
+| `--no-rviz` | Step 3: run without RViz (headless) | RViz shown |
 | `--rate RATE` | Step 3: `rosbag play` rate | `1.0` |
 | `ONLY_SEQUENCES` | restrict Steps 1, 3 and 4 to these sequences | all |
 
@@ -140,7 +183,7 @@ Every algorithm reads the same per-sequence **common bag**. It contains the orig
 plus the two derived streams some algorithms need, so nothing algorithm-specific is precomputed.
 
 ```shell
-./prepare_data_step1/prepare_data_step1.sh
+./steps/1_prepare_data/prepare_data.sh
 ```
 
 The script builds the helper image `lvio-prepare` (Python, no ROS) and converts every sequence:
@@ -184,8 +227,8 @@ cache, using ~125 MB of RAM.
 ## Step 2 Build the algorithm images
 
 ```shell
-./build_images_step2/build_images_step2.sh
-ONLY_ALGOS="r3live lvi-sam" ./build_images_step2/build_images_step2.sh
+./steps/2_build_images/build_images.sh
+ONLY_ALGOS="r3live lvi-sam" ./steps/2_build_images/build_images.sh
 ```
 
 Each `algorithms/<dir>/Dockerfile` is built as `<id>_<distro>`:
@@ -209,8 +252,8 @@ commits. Failed builds are listed at the end and do not stop the others.
 ## Step 3 Run the algorithms
 
 ```shell
-./run_benchmark_step3/run_benchmark_step3.sh
-ONLY_ALGOS="fast-livo2" ONLY_SEQUENCES="stairs" ./run_benchmark_step3/run_benchmark_step3.sh --rviz
+./steps/3_run_benchmark/run_benchmark.sh
+ONLY_ALGOS="fast-livo2" ONLY_SEQUENCES="stairs" ./steps/3_run_benchmark/run_benchmark.sh --no-rviz
 ```
 
 For every (sequence, algorithm) pair, `algorithms/<dir>/run.sh` starts the image with the common
@@ -236,7 +279,7 @@ abort without waiting.
 
 Each algorithm's frame-rate reduction, compressed→raw conversion and IMU adapter run inside
 its own launch file (see [section 3](#3-algorithms-and-their-inputs)). Algorithms that open GUI
-windows (r3live) get a virtual X server (Xvfb) unless `--rviz` provides the real display. The run's
+windows (r3live) show them on your display, or on a virtual X server (Xvfb) with `--no-rviz`. The run's
 config is copied into the result folder, and the files are owned by your user.
 
 | Argument or setting | Purpose | Default |
@@ -245,7 +288,7 @@ config is copied into the result folder, and the files are owned by your user.
 | `--common-dir DIR` | common ROS 1 bags from Step 1 | `<data-dir>/common-ros1` |
 | `--output-dir DIR` | results | `results` |
 | `--force` | delete and redo existing results | skip existing |
-| `--rviz` | show RViz (runs `xhost +local:docker`) | off |
+| `--no-rviz` | run without RViz (headless) | RViz shown (needs an X display; runs `xhost +local:docker`) |
 | `--rate RATE` | `rosbag play` rate | `1.0` |
 | `ONLY_ALGOS`, `ONLY_SEQUENCES` | restrict the runs | all |
 
@@ -256,30 +299,32 @@ A single run without Step 3 (the output folder must be new or empty):
 
 ```shell
 algorithms/r3live/run.sh datasets/COCO/common-ros1/stairs.bag results/stairs/r3live
-LVIO_RVIZ=1 LVIO_PLAY_RATE=0.5 algorithms/r3live/run.sh datasets/COCO/common-ros1/stairs.bag /tmp/r3live-test
+LVIO_RVIZ=0 LVIO_PLAY_RATE=0.5 algorithms/r3live/run.sh datasets/COCO/common-ros1/stairs.bag /tmp/r3live-test
 ```
+
+A single run shows RViz too; `LVIO_RVIZ=0` runs it headless.
 
 For a quick end-to-end test, make a short common bag (here 30 s) in a separate folder and point
 Step 3 at it:
 
 ```shell
-ONLY_SEQUENCES=stairs ./prepare_data_step1/prepare_data_step1.sh --duration 30 --output-dir /tmp/lvio-test/common-ros1
-ONLY_SEQUENCES=stairs ./run_benchmark_step3/run_benchmark_step3.sh --common-dir /tmp/lvio-test/common-ros1 --output-dir /tmp/lvio-test/results
-ONLY_SEQUENCES=stairs ./export_step4/export_step4.sh --common-dir /tmp/lvio-test/common-ros1 --results-dir /tmp/lvio-test/results
+ONLY_SEQUENCES=stairs ./steps/1_prepare_data/prepare_data.sh --duration 30 --output-dir /tmp/lvio-test/common-ros1
+ONLY_SEQUENCES=stairs ./steps/3_run_benchmark/run_benchmark.sh --common-dir /tmp/lvio-test/common-ros1 --output-dir /tmp/lvio-test/results --no-rviz
+ONLY_SEQUENCES=stairs ./steps/4_export/export.sh --common-dir /tmp/lvio-test/common-ros1 --results-dir /tmp/lvio-test/results
 ```
 
 ## Step 4 Export trajectories and maps
 
 ```shell
-./export_step4/export_step4.sh
-ONLY_ALGOS="coco-lic" ONLY_SEQUENCES="stairs" ./export_step4/export_step4.sh --force
+./steps/4_export/export.sh
+ONLY_ALGOS="coco-lic" ONLY_SEQUENCES="stairs" ./steps/4_export/export.sh --force
 ```
 
 Step 4 exports every successful run, meaning its latest status in `results/run_summary.csv` is `ok`:
 - the trajectory as a **TUM** text file;
 - the map as a **PLY** file.
 
-`export_step4/export_results.py` reads what `algorithms/<dir>/export.yaml` names:
+`steps/4_export/export_results.py` reads what `algorithms/<dir>/export.yaml` names:
 - recorded topics;
 - files the algorithm wrote itself;
 - for Coco-LIC, the common bag.
@@ -375,7 +420,7 @@ results/
     │                  result/trajectory.txt      FAST-LIVO2's own TUM trajectory (LIO update times)
     ├── r3live/        recorded-r3live.bag        /aft_mapped_to_init, /cloud_registered
     │                  r3live_output/             r3live logs; its RGB map is written here only when
-    │                                             's' is pressed in its control panel (needs --rviz)
+    │                                             's' is pressed in its control panel (not with --no-rviz)
     ├── lvi-sam/       recorded-lvi-sam.bag       /lvi_sam/lidar/mapping/{odometry,path,cloud_registered}
     │                  lvi_sam_map/               PCD map saved on shutdown
     └── coco-lic/      data/<sequence>_*.txt      TUM trajectory (no map is saved)
@@ -408,9 +453,9 @@ implemented yet.
      The list with descriptions is at the top of `common/docker_ros1_session.sh`;
    - `export.yaml` for Step 4: where its trajectory and map come from and its world/body frames.
      The sources (`odometry`, `tum_file`, `path_last`; `accumulate`, `pcd`, `reconstruct`) are
-     described at the top of `export_step4/export_results.py`. Copy the closest existing one;
+     described at the top of `steps/4_export/export_results.py`. Copy the closest existing one;
    - `NOTES.md` with the reasons for its inputs and parameters.
-3. Build it with `ONLY_ALGOS=<id> ./build_images_step2/build_images_step2.sh`, then test it on a
+3. Build it with `ONLY_ALGOS=<id> ./steps/2_build_images/build_images.sh`, then test it on a
    short common bag (see the quick end-to-end test in Step 3), including Step 4.
 
 # 6. Troubleshooting
@@ -423,6 +468,8 @@ implemented yet.
 | An image build failed | `docker buildx history ls`, then `docker buildx history logs <build id>` show the full log. |
 | `REQUIRED process [...] has died! ... exit code -11` after `cannot open display` in `logs/launch.log` | The algorithm opens a GUI window. Set `LVIO_NEEDS_DISPLAY=1` in its `run.sh` and add `xvfb` to its image (as for r3live). |
 | A run `failed` | Read the `[lvio] FAILED:` lines, then `logs/launch.log` / `logs/play.log` in its result folder. |
+| `ERROR: RViz is shown by default but DISPLAY is not set` | No X session (e.g. over SSH). Run with `--no-rviz` (or `LVIO_RVIZ=0` for a single `run.sh`). |
+| `validate.sh` reports `FAIL` | Fix what the line names: Docker access, or a missing or unreadable bag in `datasets/COCO/`. |
 | Step 4 skips a run (`... export exists` or `its latest run is 'failed'`) | Use `--force` to redo an export. A failed run has nothing to export; redo the run in Step 3. |
 | An export `failed` | Read the `[export] FAILED:` line in `results/<sequence>/<id>/logs/export.log`. |
 | `export.json` warns `the trajectory ends N s before the end of the input bag` | The algorithm fell behind real time, and the recorder stopped 10 s after the bag ended (`LVIO_DRAIN_SECONDS` in `common/ros1_session.sh`). It stopped before the algorithm caught up. Seen for r3live on quad-easy and quad-medium. |

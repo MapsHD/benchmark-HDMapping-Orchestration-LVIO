@@ -66,6 +66,22 @@ _check_only() {
 check_only_algos() { _check_only ONLY_ALGOS "$(algo_ids)" "$ALGOS_CONF"; }
 check_only_sequences() { _check_only ONLY_SEQUENCES "$(seq_ids)" "$SEQUENCES_CONF"; }
 
+# check_rviz_display: RViz is on unless LVIO_RVIZ=0 (--no-rviz). It needs an X display that
+# containers may use (xhost). Prints why and returns 1 when that is missing.
+check_rviz_display() {
+    [ "${LVIO_RVIZ:-1}" = 1 ] || return 0
+    if [ -z "${DISPLAY:-}" ]; then
+        echo "ERROR: RViz is shown by default but DISPLAY is not set (no X session)." >&2
+        echo "       Run with --no-rviz (or LVIO_RVIZ=0) for headless runs." >&2
+        return 1
+    fi
+    if ! command -v xhost >/dev/null; then
+        echo "ERROR: RViz needs 'xhost' to let containers use the display (apt install x11-xserver-utils)." >&2
+        echo "       Or run with --no-rviz (or LVIO_RVIZ=0)." >&2
+        return 1
+    fi
+}
+
 # image_tag <id> <distro>: Docker forbids uppercase in image names.
 image_tag() {
     printf '%s_%s\n' "$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')" "$2"

@@ -28,7 +28,7 @@ Why these choices:
   `world_frame=enu`). The Alphasense IMU is used because it is HW-synced with the cameras and is the Kalibr reference.
 - **Camera**: original fisheye as `KANNALA_BRANDT` (identical to Kalibr pinhole-equidistant).
   `fisheye: 0`: COCO images have no circular border; the shipped mask is for LVI-SAM's own MEI lens.
-- **30 Hz**: LVI-SAM's own dataset records the camera at 30 Hz (measured in `datasets/LVI`). The
+- **30 Hz**: LVI-SAM's own dataset records the camera at 30 Hz (measured on its published bags during the analysis). The
   feature tracker throttles internally to `freq: 20`.
 
 ## Hard-coded frame assumptions and the virtual IMU

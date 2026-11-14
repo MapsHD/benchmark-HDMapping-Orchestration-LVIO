@@ -105,7 +105,7 @@ img_time_offset: 0.0018    # Kalibr: t_imu = t_cam + 0.0018
 
 The node iterates the bag itself (no `rosbag play`, no `/clock`), writes the trajectory and exits.
 `run.sh` sets `LVIO_RESULT_GLOB=data/*.txt`, so the run counts as failed if no non-empty TUM file was written.
-roslaunch then exits too. RViz is optional (`--rviz`) and not `required` (upstream's is).
+roslaunch then exits too. RViz is shown by default (off with `--no-rviz`) and not `required` (upstream's is).
 
 ## Outputs
 

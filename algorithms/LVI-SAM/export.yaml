@@ -1,4 +1,4 @@
-# Step 4 export of an LVI-SAM run (read by export_step4/export_results.py; keys explained there).
+# Step 4 export of an LVI-SAM run (read by steps/4_export/export_results.py; keys explained there).
 frames:
   world: odom (LVI-SAM map frame)
   body: LiDAR (os_sensor; LVI-SAM optimises the LiDAR pose)

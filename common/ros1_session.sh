@@ -94,10 +94,10 @@ if [ ! -f "$LAUNCH_FILE" ]; then
 fi
 
 # Algorithms that open GUI windows (LVIO_NEEDS_DISPLAY=1, e.g. r3live's OpenCV control panel)
-# crash without a display. Without a real one (--rviz / LVIO_RVIZ=1), use a virtual X server.
+# crash without a display. Without the real one (headless: --no-rviz / LVIO_RVIZ=0), use a virtual X server.
 if [ "${LVIO_NEEDS_DISPLAY:-0}" = 1 ] && [ -z "${DISPLAY:-}" ]; then
     if ! command -v Xvfb >/dev/null; then
-        log "FAILED: this algorithm needs a display but the image has no Xvfb (rebuild it, or use --rviz)"
+        log "FAILED: this algorithm needs a display but the image has no Xvfb (rebuild it, or run without --no-rviz)"
         exit 1
     fi
     Xvfb :99 -screen 0 1280x1024x24 -nolisten tcp < /dev/null > "$LOGS/xvfb.log" 2>&1 &

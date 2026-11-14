@@ -3,8 +3,8 @@
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-# shellcheck source=../algos_lib.sh
-source "$SCRIPT_DIR/../algos_lib.sh"
+# shellcheck source=../../algos_lib.sh
+source "$SCRIPT_DIR/../../algos_lib.sh"
 
 NO_CACHE=()
 

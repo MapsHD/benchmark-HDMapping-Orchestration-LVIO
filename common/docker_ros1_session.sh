@@ -15,12 +15,13 @@
 #   LVIO_OUTPUT_SUBDIRS  folders to create in the output dir before the run (optional)
 #   LVIO_RESULT_GLOB     result file(s) the algorithm writes itself, relative to the output dir; the run
 #                        fails if none is non-empty afterwards (optional, both modes)
-#   LVIO_NEEDS_DISPLAY=1 the algorithm opens GUI windows: without LVIO_RVIZ=1 the session starts Xvfb
+#   LVIO_NEEDS_DISPLAY=1 the algorithm opens GUI windows: with LVIO_RVIZ=0 the session starts Xvfb
 #                        (the image must contain xvfb)
 #   LVIO_SHUTDOWN_TIMEOUT seconds allowed for a graceful stop / map saving (default 180)
 #   LVIO_CONTAINER_HOME  HOME inside the container (optional, default /tmp)
 # User settings:
-#   LVIO_RVIZ=1          show RViz (needs an X session; runs 'xhost +local:docker')
+#   LVIO_RVIZ=0          run without RViz (headless). Default 1: show RViz, which needs an X session
+#                        and runs 'xhost +local:docker'
 #   LVIO_PLAY_RATE       rosbag play rate (default 1.0)
 #   LVIO_IMAGE           use this image instead of <id>_<distro> from algorithms.conf
 set -euo pipefail
@@ -29,7 +30,7 @@ usage() {
     echo "Usage: $(basename "${LVIO_RUN_SCRIPT:-$0}") <input_bag> <output_dir>" >&2
     echo "  input_bag   common bag from Step 1 (datasets/COCO/common-ros1/<sequence>.bag)" >&2
     echo "  output_dir  new or empty folder for the results" >&2
-    echo "  LVIO_RVIZ=1 to show RViz, LVIO_PLAY_RATE=<rate> to change the playback rate." >&2
+    echo "  RViz is shown by default (LVIO_RVIZ=0 to run headless); LVIO_PLAY_RATE=<rate> changes the playback rate." >&2
     exit 1
 }
 
@@ -56,7 +57,7 @@ if [ "$LVIO_MODE" = play ]; then
 fi
 
 if ! docker image inspect "$IMAGE" >/dev/null 2>&1; then
-    echo "ERROR: Docker image '$IMAGE' not found. Build it with build_images_step2/build_images_step2.sh" >&2
+    echo "ERROR: Docker image '$IMAGE' not found. Build it with steps/2_build_images/build_images.sh" >&2
     exit 1
 fi
 if [ ! -f "$INPUT" ]; then
@@ -81,7 +82,9 @@ done
 # --init forwards it to ros1_session.sh, which stops the run gracefully. With -it, Ctrl-C would
 # only reach whichever command is in the container's foreground at that moment.
 DOCKER_ARGS=(--rm --init)
-if [ "${LVIO_RVIZ:-0}" = 1 ]; then
+LVIO_RVIZ="${LVIO_RVIZ:-1}"
+check_rviz_display || exit 1
+if [ "$LVIO_RVIZ" = 1 ]; then
     xhost +local:docker >/dev/null
     DOCKER_ARGS+=(-e DISPLAY="${DISPLAY:-:0}" -e QT_X11_NO_MITSHM=1 -v /tmp/.X11-unix:/tmp/.X11-unix:rw)
 fi
@@ -95,7 +98,7 @@ docker run "${DOCKER_ARGS[@]}" \
     -e LVIO_PLAY_TOPICS="${LVIO_PLAY_TOPICS:-}" \
     -e LVIO_RECORD_TOPICS="${LVIO_RECORD_TOPICS:-}" \
     -e LVIO_PLAY_RATE="${LVIO_PLAY_RATE:-1.0}" \
-    -e LVIO_RVIZ="${LVIO_RVIZ:-0}" \
+    -e LVIO_RVIZ="$LVIO_RVIZ" \
     -e LVIO_RESULT_GLOB="${LVIO_RESULT_GLOB:-}" \
     -e LVIO_NEEDS_DISPLAY="${LVIO_NEEDS_DISPLAY:-0}" \
     -e LVIO_SHUTDOWN_TIMEOUT="${LVIO_SHUTDOWN_TIMEOUT:-180}" \

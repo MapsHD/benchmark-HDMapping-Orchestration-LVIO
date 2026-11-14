@@ -3,8 +3,8 @@
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-# shellcheck source=../algos_lib.sh
-source "$SCRIPT_DIR/../algos_lib.sh"
+# shellcheck source=../../algos_lib.sh
+source "$SCRIPT_DIR/../../algos_lib.sh"
 
 DATA_DIR="$LVIO_ROOT/datasets/COCO"
 COMMON_DIR=""
@@ -13,7 +13,7 @@ FORCE=0
 
 usage() {
     cat <<EOF
-Usage: $0 [--data-dir DIR] [--common-dir DIR] [--output-dir DIR] [--force] [--rviz] [--rate RATE]
+Usage: $0 [--data-dir DIR] [--common-dir DIR] [--output-dir DIR] [--force] [--no-rviz] [--rate RATE]
 
 Runs algorithms/<dir>/run.sh for each (sequence, algorithm) pair:
   <common-dir>/<sequence>.bag  ->  <output-dir>/<sequence>/<algorithm-id>/
@@ -22,7 +22,7 @@ Runs algorithms/<dir>/run.sh for each (sequence, algorithm) pair:
   --common-dir DIR  common ROS 1 bags from Step 1           (default: <data-dir>/common-ros1)
   --output-dir DIR  results                                 (default: results)
   --force           delete and redo existing results        (default: skip them)
-  --rviz            show RViz for each run (X session needed)
+  --no-rviz         run without RViz (headless); by default every run shows RViz (X session needed)
   --rate RATE       rosbag play rate                        (default: 1.0)
 
 Set ONLY_ALGOS="r3live lvi-sam" and/or ONLY_SEQUENCES="stairs" to restrict the runs.
@@ -37,7 +37,7 @@ while [[ $# -gt 0 ]]; do
         --common-dir) COMMON_DIR="${2:?--common-dir needs a value}"; shift 2 ;;
         --output-dir) OUTPUT_DIR="${2:?--output-dir needs a value}"; shift 2 ;;
         --force)      FORCE=1; shift ;;
-        --rviz)       export LVIO_RVIZ=1; shift ;;
+        --no-rviz)    export LVIO_RVIZ=0; shift ;;
         --rate)       export LVIO_PLAY_RATE="${2:?--rate needs a value}"; shift 2 ;;
         -h|--help)    usage; exit 0 ;;
         *)            echo "ERROR: unknown argument: $1" >&2; usage >&2; exit 1 ;;
@@ -46,6 +46,8 @@ done
 
 check_only_algos
 check_only_sequences
+export LVIO_RVIZ="${LVIO_RVIZ:-1}"   # RViz is on by default
+check_rviz_display || exit 1
 
 DATA_DIR="$(realpath -m "$DATA_DIR")"
 COMMON_DIR="$(realpath -m "${COMMON_DIR:-$DATA_DIR/common-ros1}")"

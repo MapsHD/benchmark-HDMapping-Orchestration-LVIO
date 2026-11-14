@@ -19,7 +19,7 @@ r3live_common:
 r3live_vio:
    image_width: 720
    image_height: 540
-   # rectified cam0 (prepare_data_step1/coco_calibration.yaml, cam0_rect)
+   # rectified cam0 (steps/1_prepare_data/coco_calibration.yaml, cam0_rect)
    camera_intrinsic:
       [272.29, 0.0, 357.52,
        0.0, 273.70, 255.50,

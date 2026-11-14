@@ -77,7 +77,7 @@ r3live estimates the camera–IMU time offset online, so no setting is needed.
 | What | Where |
 | --- | --- |
 | Trajectory | `/aft_mapped_to_init` (`nav_msgs/Odometry`) |
-| Map | `/cloud_registered` (recorded). The RGB map is written to `map_output_dir` **only when 's' is pressed in r3live's OpenCV "Control panel" window** (`cv_keyboard_callback`, `r3live_vio.cpp:1076`), not on shutdown. To get it, run with `--rviz` (real display) and press 's' before the bag ends. It is meshable with `r3live_reconstruct_mesh.launch`. |
+| Map | `/cloud_registered` (recorded). The RGB map is written to `map_output_dir` **only when 's' is pressed in r3live's OpenCV "Control panel" window** (`cv_keyboard_callback`, `r3live_vio.cpp:1076`), not on shutdown. To get it, run with the real display (the default; not with `--no-rviz`) and press 's' before the bag ends. It is meshable with `r3live_reconstruct_mesh.launch`. |
 
 ## Export (Step 4, `export.yaml`)
 
@@ -111,8 +111,8 @@ r3live estimates the camera–IMU time offset online, so no setting is needed.
 
 - `service_VIO_update` always calls `cv::imshow("Control panel", ...)` (`r3live_vio.cpp:1095`). Without a
   display GTK fails (`cannot open display`) and `r3live_mapping` segfaults (exit -11). `run.sh` sets
-  `LVIO_NEEDS_DISPLAY=1`, so headless runs get Xvfb inside the container. `--rviz` uses the real display
-  instead, which also shows the control panel.
+  `LVIO_NEEDS_DISPLAY=1`, so headless runs (`--no-rviz`) get Xvfb inside the container. By default the
+  real display is used, which also shows the control panel.
 - r3live does not exit on SIGINT, and it saves nothing on shutdown (see the map row above). `run.sh` therefore sets
   `LVIO_SHUTDOWN_TIMEOUT=20` instead of the default 180 s.
 - Verified on the 30 s stairs extract: 296 `/aft_mapped_to_init` + 296 `/cloud_registered` messages, 74 s run.

@@ -3,8 +3,8 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-# shellcheck source=../algos_lib.sh
-source "$SCRIPT_DIR/../algos_lib.sh"
+# shellcheck source=../../algos_lib.sh
+source "$SCRIPT_DIR/../../algos_lib.sh"
 
 IMAGE_NAME="lvio-prepare"
 DATA_DIR="$LVIO_ROOT/datasets/COCO"
