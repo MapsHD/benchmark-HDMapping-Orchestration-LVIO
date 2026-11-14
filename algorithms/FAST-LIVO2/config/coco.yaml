@@ -1,0 +1,96 @@
+# FAST-LIVO2 on COCO (Newer College Multi-Cam 2021). Values: ../NOTES.md.
+# Base: config/HILTI22.yaml (same Alphasense camera + IMU); LiDAR settings from NTU_VIRAL.yaml (Ouster).
+common:
+  img_topic: "/lvio/cam0_10hz/image_raw"      # cam0 fisheye, 30 -> 10 Hz, republished raw (fast_livo2.launch)
+  lid_topic: "/os_cloud_node/points"          # Ouster OS0-128, native layout
+  imu_topic: "/alphasense_driver_ros/imu"     # Alphasense IMU, 200 Hz
+  img_en: 1
+  lidar_en: 1
+  ros_driver_bug_fix: false
+
+extrin_calib:
+  # T_imu_lidar (LiDAR os_sensor in Alphasense IMU): p_imu = R * p_lidar + T
+  extrinsic_T: [-0.057101, -0.032334, -0.033106]
+  extrinsic_R: [ 0.999945, -0.004891,  0.009238,
+                -0.004830, -0.999967, -0.006607,
+                 0.009270,  0.006562, -0.999936]
+  # T_cam_lidar (LiDAR -> cam0): p_cam = Rcl * p_lidar + Pcl
+  Rcl: [-0.001446, -0.999999, -0.000559,
+         0.008235,  0.000548, -0.999966,
+         0.999965, -0.001451,  0.008234]
+  Pcl: [-0.079792, -0.024078, -0.106073]
+
+time_offset:
+  imu_time_offset: 0.0
+  img_time_offset: 0.0018     # Kalibr: t_imu = t_cam + 0.0018
+  lidar_time_offset: 0.0      # Ouster header = scan start
+  exposure_time_init: 0.0
+
+preprocess:
+  hilti_en: false             # its hard-coded 1-of-4 decimation is for 40 Hz; 10 Hz comes from the launch file
+  point_filter_num: 3
+  filter_size_surf: 0.1
+  lidar_type: 3               # Ouster
+  scan_line: 128
+  blind: 0.65                 # as COIN-LIO's Newer College config
+
+vio:
+  max_iterations: 5
+  outlier_threshold: 500
+  img_point_cov: 1000
+  patch_size: 8
+  patch_pyrimid_level: 4
+  normal_en: true
+  raycast_en: false
+  inverse_composition_en: false
+  exposure_estimate_en: true
+  inv_expo_cov: 0.1
+
+imu:
+  imu_en: true
+  imu_int_frame: 30
+  acc_cov: 0.5
+  gyr_cov: 0.01
+  b_acc_cov: 0.0001
+  b_gyr_cov: 0.0001
+
+lio:
+  max_iterations: 5
+  dept_err: 0.02
+  beam_err: 0.01
+  min_eigen_value: 0.0025
+  voxel_size: 0.5
+  max_layer: 2
+  max_points_num: 50
+  layer_init_num: [5, 5, 5, 5, 5]
+
+local_map:
+  map_sliding_en: false
+  half_map_size: 100
+  sliding_thresh: 8
+
+uav:
+  imu_rate_odom: false
+  gravity_align_en: false
+
+publish:
+  dense_map_en: true
+  pub_effect_point_en: false
+  pub_plane_en: false
+  pub_scan_num: 1
+  blind_rgb_points: 0.0
+
+evo:
+  seq_name: "coco"
+  pose_output_en: false       # trajectory is recorded from /aft_mapped_to_init instead
+
+pcd_save:
+  pcd_save_en: false          # map is recorded from /cloud_registered instead
+  type: 0
+  colmap_output_en: false
+  filter_size_pcd: 0.15
+  interval: -1
+
+image_save:
+  img_save_en: false
+  interval: 1

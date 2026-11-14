@@ -2,7 +2,8 @@
 # docker system prune -a && sudo docker-clean --all
 #
 # Build docker image
-# docker build --no-cache -t mw-r3live .
+# docker build --no-cache -t r3live_noetic .
+# (the benchmark builds it with build_images_step2/build_images_step2.sh)
 #
 # Give docker access to display:
 # xhost +local:docker
@@ -15,7 +16,7 @@
 #     -e QT_X11_NO_MITSHM=1 \
 #     -v /tmp/.X11-unix:/tmp/.X11-unix:rw \
 #     -v PATH_TO_DIRECTORY_CONTAINING_DATASET_BAGS:/root/data \
-#     mw-r3live
+#     r3live_noetic
 #
 # Run r3live:
 # docker terminal 1 : roslaunch r3live r3live_bag.launch
@@ -148,6 +149,21 @@ RUN git clone https://github.com/mwlasiuk/mw-r3live.git
 
 
 # ============================================================
+# LVIO benchmark patch: LiDAR -> IMU offset for the Ouster
+#
+# r3live has no LiDAR-IMU rotation, only this compile-time
+# translation (shipped value: Livox Avia). The benchmark uses
+# the Ouster internal IMU (axes = os_sensor axes), so set the
+# os_sensor origin in the os_imu frame (Ouster metadata
+# imu_to_sensor_transform). See NOTES.md.
+# ============================================================
+
+RUN f=${CATKIN_WS}/src/mw-r3live/r3live/src/loam/include/common_lib.h && \
+    sed -i 's|^static const Eigen::Vector3d Lidar_offset_to_IMU(.*|static const Eigen::Vector3d Lidar_offset_to_IMU(-0.006253, 0.011775, -0.007645); // Ouster os_sensor in os_imu (LVIO benchmark)|' "$f" && \
+    grep -q '^static const Eigen::Vector3d Lidar_offset_to_IMU(-0.006253, 0.011775, -0.007645);' "$f"
+
+
+# ============================================================
 # Install ROS package dependencies
 # ============================================================
 
@@ -167,6 +183,20 @@ RUN source /opt/ros/${ROS_DISTRO}/setup.bash && \
 
 RUN source /opt/ros/${ROS_DISTRO}/setup.bash && \
     catkin build --force-cmake
+
+
+# ============================================================
+# LVIO benchmark: virtual X server
+#
+# r3live always opens an OpenCV "Control panel" window
+# (cv::imshow in service_VIO_update) and segfaults without a
+# display. ros1_session.sh starts Xvfb for headless runs
+# (run.sh sets LVIO_NEEDS_DISPLAY=1). See NOTES.md.
+# ============================================================
+
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends xvfb && \
+    rm -rf /var/lib/apt/lists/*
 
 
 # ============================================================

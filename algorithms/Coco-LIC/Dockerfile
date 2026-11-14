@@ -2,7 +2,8 @@
 # docker system prune -a && sudo docker-clean --all
 #
 # Build docker image
-# docker build --no-cache -t mw-coco-lic .
+# docker build --no-cache -t coco-lic_noetic .
+# (the benchmark builds it with build_images_step2/build_images_step2.sh)
 #
 # Give docker access to display:
 # xhost +local:docker
@@ -15,7 +16,7 @@
 #     -e QT_X11_NO_MITSHM=1 \
 #     -v /tmp/.X11-unix:/tmp/.X11-unix:rw \
 #     -v PATH_TO_DIRECTORY_CONTAINING_DATASET:/root/catkin_coco/src/Coco-LIC/data \
-#     mw-coco-lic
+#     coco-lic_noetic
 #
 # Edit config for a desired dataset (example for r3live dataset because why not?):
 # nano config/ct_odometry_r3live.yaml
@@ -241,7 +242,13 @@ RUN source /opt/ros/${ROS_DISTRO}/setup.bash && \
 
 WORKDIR ${CATKIN_WS}/src
 
-RUN git clone https://github.com/APRIL-ZJU/Coco-LIC.git
+# Pinned: upstream keeps moving (Gaussian-LIC front-end work); the benchmark
+# configs (config/) were written against this commit. Override with
+# docker build --build-arg COCO_LIC_REF=<commit> .
+ARG COCO_LIC_REF=4ead7e423f67b3e15a86de4ee551bb7c752f2cd8
+
+RUN git clone https://github.com/APRIL-ZJU/Coco-LIC.git && \
+    git -C Coco-LIC checkout ${COCO_LIC_REF}
 
 
 # ============================================================

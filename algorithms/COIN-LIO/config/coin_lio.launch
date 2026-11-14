@@ -1,0 +1,14 @@
+<launch>
+    <!-- LVIO benchmark: COIN-LIO on the COCO common bag (see ../NOTES.md).
+         The shipped Newer College launch file is used unchanged: Ouster cloud + Ouster IMU,
+         os_newer_college.json metadata, u_shift 31. The bag is played by ros1_session.sh. -->
+    <arg name="rviz" default="false"/>
+    <arg name="input_bag" default=""/>   <!-- unused: the bag is played from outside -->
+    <arg name="out_dir" default="/lvio/out"/>
+
+    <param name="use_sim_time" value="true"/>
+
+    <include file="$(find coin_lio)/launch/mapping_newer_college.launch">
+        <arg name="rviz" value="$(arg rviz)"/>
+    </include>
+</launch>

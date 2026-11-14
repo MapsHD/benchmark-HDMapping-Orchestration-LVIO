@@ -1,0 +1,43 @@
+lidar0:
+    topic: /lvio/points_xyzirt          # Ouster in Velodyne layout (ring u16, time f32)
+    is_livox: false
+    Extrinsics:  # lidar to imu: LiDAR (os_sensor) pose in the Alphasense IMU frame, Rot row-major
+        Trans: [-0.057101, -0.032334, -0.033106]
+        Rot: [ 0.999945, -0.004891,  0.009238,
+              -0.004830, -0.999967, -0.006607,
+               0.009270,  0.006562, -0.999936]
+
+num_lidars: 1
+
+lidar_timestamp_end: false  # Ouster header = scan start
+
+### FeatureExtraction ###
+VLP16:  # any rotating LiDAR (here Ouster OS0-128)
+    N_SCAN: 128
+    Horizon_SCAN: 1024
+    edge_threshold: 1.0
+    surf_threshold: 0.1
+    odometry_surface_leaf_size: 0.4
+    min_distance: 0.65
+    max_distance: 200.0
+
+use_corner_feature: false
+
+### Odometry ###
+current_scan_param:
+    corner_leaf_size: 0.2
+    surface_leaf_size: 0.4
+    edge_min_valid_num: 10
+    surf_min_valid_num: 100
+    correspondence_downsample: 2
+
+keyframe_strategy:
+    angle_degree: 10
+    dist_meter: 1.0
+    time_second: 10
+
+map_param:
+    keyframe_search_radius: 50.0
+    keyframe_search_time: 10.0
+    keyframe_density: 2
+    cloud_reserved_time: -1  # [s]

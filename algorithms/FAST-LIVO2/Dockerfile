@@ -2,7 +2,8 @@
 # docker system prune -a && sudo docker-clean --all
 #
 # Build docker image:
-# docker build --no-cache -t mw-fast-livo2 .
+# docker build --no-cache -t fast-livo2_noetic .
+# (the benchmark builds it with build_images_step2/build_images_step2.sh)
 #
 # Give docker access to display:
 # xhost +local:docker
@@ -15,7 +16,7 @@
 #     -e QT_X11_NO_MITSHM=1 \
 #     -v /tmp/.X11-unix:/tmp/.X11-unix:rw \
 #     -v PATH_TO_DIRECTORY_CONTAINING_DATASET_BAGS:/root/data \
-#     mw-fast-livo2
+#     fast-livo2_noetic
 #
 # Run FAST-LIVO2:
 # roslaunch fast_livo mapping_avia.launch
@@ -61,9 +62,11 @@ RUN apt-get update && \
 # Python tools
 # ============================================================
 
+# empy pinned: empy 4.x (PyPI default) would shadow apt's 3.3.4 and
+# breaks catkin's template expansion (no em.RAW_OPT).
 RUN pip3 install --no-cache-dir \
         catkin-tools \
-        empy
+        empy==3.3.4
 
 
 # ============================================================

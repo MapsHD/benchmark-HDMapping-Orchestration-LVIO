@@ -1,0 +1,24 @@
+# Camera calibration used by make_common_bag.py for the COCO dataset (Newer College Multi-Cam 2021).
+#
+# cam0: Kalibr, datasets/COCO/cam_calibration/cam0-1/_2021-07-01-13-36-53-cam0-1-camchain-imucam.yaml
+#       (pinhole projection + equidistant distortion, 720 x 540).
+# cam0_rect: target pinhole camera of the rectified stream /lvio/cam0_rect/compressed.
+#       From cv2.fisheye.estimateNewCameraMatrixForUndistortRectify(K, D, (720, 540), I, balance=0),
+#       rounded to 0.01 px: FOV 105.8 x 89.1 deg, no black borders. Rotation = identity, so the
+#       rectified camera frame is the cam0 frame and every extrinsic stays the same.
+#
+# The algorithm configs copy these numbers (algorithms/r3live/config, algorithms/Coco-LIC/config):
+# change them together.
+
+cam0:
+  topic: /alphasense_driver_ros/cam0/compressed
+  resolution: [720, 540]                              # width, height
+  intrinsics: [352.779, 354.609, 359.035, 260.546]    # fx, fy, cx, cy
+  distortion_model: equidistant
+  distortion_coeffs: [-0.04217, -0.00413, 0.00179, -0.00063]   # k1..k4
+
+cam0_rect:
+  topic: /lvio/cam0_rect/compressed
+  resolution: [720, 540]
+  intrinsics: [272.29, 273.70, 357.52, 255.50]        # fx, fy, cx, cy; no distortion
+  jpeg_quality: 95

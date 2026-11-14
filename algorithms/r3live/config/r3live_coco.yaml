@@ -1,0 +1,41 @@
+# r3live on COCO (Newer College Multi-Cam 2021). Values: ../NOTES.md.
+# Base: config/r3live_config.yaml + the Ouster settings of r3live_bag_ouster.launch.
+Lidar_front_end:
+   lidar_type: 3              # Ouster
+   N_SCANS: 128
+   using_raw_point: 1
+   point_step: 1
+   blind: 0.65                # as COIN-LIO's Newer College config
+r3live_common:
+   if_dump_log: 0
+   record_offline_map: 1      # offline RGB map in map_output_dir (set in r3live.launch)
+   pub_pt_minimum_views: 3
+   minimum_pts_size: 0.01
+   image_downsample_ratio: 1
+   estimate_i2c_extrinsic: 1
+   estimate_intrinsic: 1
+   maximum_vio_tracked_pts: 600
+   append_global_map_point_step: 4
+r3live_vio:
+   image_width: 720
+   image_height: 540
+   # rectified cam0 (prepare_data_step1/coco_calibration.yaml, cam0_rect)
+   camera_intrinsic:
+      [272.29, 0.0, 357.52,
+       0.0, 273.70, 255.50,
+       0.0, 0.0, 1.0]
+   camera_dist_coeffs: [0.0, 0.0, 0.0, 0.0, 0.0]  # k1, k2, p1, p2, k3
+   # pose of cam0 in the Ouster IMU frame (T_osimu_cam0), row-major
+   camera_ext_R:
+      [-0.001446,  0.008235,  0.999965,
+       -0.999999,  0.000548, -0.001451,
+       -0.000559, -0.999966,  0.008234]
+   camera_ext_t: [0.099899, -0.068157, -0.030894]
+r3live_lio:
+   lio_update_point_step: 6   # as r3live_bag_ouster.launch
+   max_iteration: 2
+   lidar_time_delay: 0
+   filter_size_corner: 0.30
+   filter_size_surf: 0.30
+   filter_size_surf_z: 0.30
+   filter_size_map: 0.30

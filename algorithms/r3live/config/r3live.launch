@@ -1,0 +1,32 @@
+<launch>
+    <!-- LVIO benchmark: r3live on the COCO common bag (see ../NOTES.md).
+         Ouster cloud + Ouster IMU + rectified cam0 at 15 Hz.
+         Based on r3live_bag_ouster.launch. The image also needs the Lidar_offset_to_IMU
+         patch done in the Dockerfile. -->
+    <arg name="rviz" default="false"/>
+    <arg name="input_bag" default=""/>   <!-- unused: the bag is played from outside -->
+    <arg name="out_dir" default="/lvio/out"/>
+
+    <param name="use_sim_time" value="true"/>
+
+    <!-- Subscribed topics. The LiDAR front end reads /os_cloud_node/points (hard-coded for lidar_type 3)
+         and publishes /laser_cloud_flat. r3live subscribes Image_topic and Image_topic/compressed. -->
+    <param name="/LiDAR_pointcloud_topic" type="string" value="/laser_cloud_flat"/>
+    <param name="/IMU_topic" type="string" value="/os_cloud_node/imu"/>
+    <param name="/Image_topic" type="string" value="/lvio/cam0_rect_15hz"/>
+
+    <rosparam command="load" file="$(arg out_dir)/config/r3live_coco.yaml"/>
+    <param name="r3live_common/map_output_dir" type="string" value="$(arg out_dir)/r3live_output"/>
+
+    <!-- 30 Hz -> 15 Hz: keep 1 of every 2 frames (count based, deterministic) -->
+    <node pkg="topic_tools" type="drop" name="lvio_cam0_rect_15hz"
+          args="/lvio/cam0_rect/compressed 1 2 /lvio/cam0_rect_15hz/compressed"/>
+
+    <node pkg="r3live" type="r3live_LiDAR_front_end" name="r3live_LiDAR_front_end" output="screen" required="true"/>
+    <node pkg="r3live" type="r3live_mapping" name="r3live_mapping" output="screen" required="true"/>
+
+    <group if="$(arg rviz)">
+        <node name="rvizvisualisation" pkg="rviz" type="rviz" output="log"
+              args="-d $(find r3live)/../config/rviz/r3live_rviz_config_ouster.rviz"/>
+    </group>
+</launch>

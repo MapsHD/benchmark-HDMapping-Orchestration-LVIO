@@ -2,7 +2,8 @@
 # docker system prune -a && sudo docker-clean --all
 #
 # Build docker image:
-# docker build --no-cache -t mw-lvi-sam .
+# docker build --no-cache -t lvi-sam_melodic .
+# (the benchmark builds it with build_images_step2/build_images_step2.sh)
 #
 # Give docker access to display:
 # xhost +local:docker
@@ -15,7 +16,7 @@
 #     -e QT_X11_NO_MITSHM=1 \
 #     -v /tmp/.X11-unix:/tmp/.X11-unix:rw \
 #     -v PATH_TO_DIRECTORY_CONTAINING_DATASET_BAGS:/root/data \
-#     mw-lvi-sam
+#     lvi-sam_melodic
 #
 # Run LVI-SAM:
 # roslaunch lvi_sam run.launch
@@ -179,6 +180,24 @@ RUN source /opt/ros/${ROS_DISTRO}/setup.bash && \
 
 RUN source /opt/ros/${ROS_DISTRO}/setup.bash && \
     catkin_make
+
+
+# ============================================================
+# LVIO benchmark additions (see NOTES.md)
+#
+# - imu_filter_madgwick: LVI-SAM needs a 9-axis IMU (orientation)
+# - lvio_imu_virtual_frame.py: rotates the IMU into the frame
+#   LVI-SAM's hard-coded LiDAR/IMU axes expect. Placed in the
+#   lvi_sam package so roslaunch can start it.
+# ============================================================
+
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+        ros-melodic-imu-filter-madgwick && \
+    rm -rf /var/lib/apt/lists/*
+
+COPY lvio/lvio_imu_virtual_frame.py ${CATKIN_WS}/src/mw-LVI-SAM/scripts/lvio_imu_virtual_frame.py
+RUN chmod +x ${CATKIN_WS}/src/mw-LVI-SAM/scripts/lvio_imu_virtual_frame.py
 
 
 # ============================================================

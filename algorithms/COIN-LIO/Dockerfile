@@ -2,7 +2,8 @@
 # docker system prune -a && sudo docker-clean --all
 #
 # Build docker image :
-# docker build --no-cache -t mw-coin-lio .
+# docker build --no-cache -t coin-lio_noetic .
+# (the benchmark builds it with build_images_step2/build_images_step2.sh)
 #
 # Give docker access to display:
 # xhost +local:docker
@@ -15,7 +16,7 @@
 #     -e QT_X11_NO_MITSHM=1 \
 #     -v /tmp/.X11-unix:/tmp/.X11-unix:rw \
 #     -v PATH_TO_DIRECTORY_CONTAINING_DATASET_BAGS:/root/data \
-#     mw-coin-lio
+#     coin-lio_noetic
 #
 # Run coin-lio
 # roslaunch coin_lio mapping_newer_college.launch bag_file:=/root/data/DATASET.bag
@@ -112,6 +113,23 @@ RUN source /opt/ros/${ROS_DISTRO}/setup.bash && \
 WORKDIR ${CATKIN_WS}/src
 
 RUN git clone https://github.com/mwlasiuk/mw-COIN-LIO.git
+
+
+# ============================================================
+# LVIO benchmark fix: message-generation dependency
+#
+# Upstream CMakeLists.txt builds the coin_lio library from
+# sources that include the generated coin_lio/Pose6D.h, but
+# never declares the dependency on message generation. A
+# parallel catkin build then fails with
+#   common_lib.h: 'coin_lio' does not name a type
+# Declaring it (valid at the end of the file) fixes the race.
+# The leading newline matters: upstream's file has no trailing newline.
+# ============================================================
+
+RUN printf '\n%s\n' 'add_dependencies(${PROJECT_NAME} ${PROJECT_NAME}_generate_messages_cpp)  # LVIO benchmark' \
+        >> ${CATKIN_WS}/src/mw-COIN-LIO/CMakeLists.txt && \
+    tail -n 2 ${CATKIN_WS}/src/mw-COIN-LIO/CMakeLists.txt
 
 
 # ============================================================
