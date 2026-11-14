@@ -117,6 +117,24 @@ roslaunch then exits too. RViz is optional (`--rviz`) and not `required` (upstre
 Verified on the 30 s stairs extract: `data/stairs_LICO.txt` with 2853 poses (100 Hz, 17 s run).
 Format: TUM (`t x y z qx qy qz qw`), body = Alphasense IMU frame (z down), so the first quaternion is ≈ (1, 0, 0, 0).
 
+## Export (Step 4, `export.yaml`)
+
+- Trajectory: `data/<sequence>_LICO.txt` (`Trajectory::ToTUMTxt`, `trajectory.cpp:197`).
+  - Format: `t x y z qx qy qz qw`, positions and quaternions to 5 decimals.
+  - Content: the IMU pose sampled every 10 ms along the B-spline.
+- Map: Coco-LIC saves none, so Step 4 rebuilds one and marks it `reconstructed` in `export.json`.
+  - Source: every point of the common bag's `/lvio/points_xyzirt`.
+  - Point time: the header (scan start, `lidar_timestamp_end: false`) plus the point's `time`.
+  - Placement: the trajectory interpolated at that time, then `lidar0.Extrinsics` of the run's
+    `config/coco/lidar.yaml`.
+  - Range filter: `VLP16.min_distance` / `max_distance` (0.65–200 m), as in Coco-LIC's feature
+    extraction (`velodyne_feature_extraction.cpp:265`).
+  - Points outside the trajectory's time span are dropped.
+  - On stairs the rebuilt map matches the COIN-LIO and r3live maps.
+- `quad-hard` has no export: the run fails with an uncaught
+  `cv::Exception ... findFundamentalMat: The input arrays should be 2D or 3D point sets` in the
+  visual front end, before any trajectory is written. Not fixed yet.
+
 ## Dockerfile (`algorithms/Coco-LIC/Dockerfile`)
 
 - Done: Coco-LIC pinned with `ARG COCO_LIC_REF=4ead7e4…` (the analysed commit; upstream HEAD moves with the Gaussian-LIC work).

@@ -264,6 +264,20 @@ RUN source /opt/ros/${ROS_DISTRO}/setup.bash && \
 
 
 # ============================================================
+# Native trajectory output into the run's output directory
+#
+# With evo/pose_output_en, FAST-LIVO2 writes its TUM trajectory to
+# Log/result/<evo/seq_name>.txt under ROOT_DIR, the source directory
+# fixed at compile time. Link that folder to result/ in the output
+# directory that common/docker_ros1_session.sh mounts at /lvio/out
+# (run.sh creates it through LVIO_OUTPUT_SUBDIRS).
+# ============================================================
+
+RUN rm -rf ${CATKIN_WS}/src/mw-FAST-LIVO2/Log/result && \
+    ln -s /lvio/out/result ${CATKIN_WS}/src/mw-FAST-LIVO2/Log/result
+
+
+# ============================================================
 # Automatically source ROS + workspace
 # ============================================================
 

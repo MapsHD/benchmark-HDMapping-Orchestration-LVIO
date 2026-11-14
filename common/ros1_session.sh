@@ -11,7 +11,7 @@
 #
 # Exit status: 0 = ok; 1 = failed (see the [lvio] lines and logs/); 130 = interrupted.
 # A run fails when the bag cannot be played, the algorithm exits early, nothing was recorded
-# (play mode) or the expected result file is missing (offline mode, LVIO_RESULT_GLOB).
+# (play mode) or the expected result file is missing (LVIO_RESULT_GLOB, both modes).
 #
 # Ctrl-C / docker stop: the container gets SIGINT/SIGTERM (docker run without a TTY proxies
 # signals; --init forwards them to this script). Stops the bag, closes the recorded bag, lets the
@@ -200,6 +200,18 @@ if [ -f "$RECORD_BAG" ]; then
 fi
 if [ "$recorded" -eq 0 ]; then
     failures+=("no output messages were recorded")
+fi
+if [ -n "${LVIO_RESULT_GLOB:-}" ]; then
+    results=()
+    for f in "$OUT"/$LVIO_RESULT_GLOB; do
+        [ -s "$f" ] && results+=("$f")
+    done
+    if [ ${#results[@]} -eq 0 ]; then
+        failures+=("no non-empty result file matches $LVIO_RESULT_GLOB")
+    fi
+    for f in "${results[@]}"; do
+        log "result: ${f#"$OUT"/} ($(wc -l < "$f") lines)"
+    done
 fi
 
 if [ ${#failures[@]} -gt 0 ]; then

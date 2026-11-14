@@ -48,6 +48,12 @@ These are the same topics as FAST-LIO, so the LIO benchmark converter
 `benchmark-FAST-LIO-to-HDMapping/src/fast-lio-to-hdmapping` (reads `/Odometry` + `/cloud_registered`)
 should apply unchanged.
 
+## Export (Step 4, `export.yaml`)
+
+- Trajectory: `/Odometry`, header stamp = scan end time. World `camera_init`, body = Ouster IMU.
+- Map: the sum of the `/cloud_registered` dense scans, already in `camera_init`: x y z + intensity
+  (normals and curvature dropped).
+
 ## Dockerfile (`algorithms/COIN-LIO/Dockerfile`)
 
 - **Build fix:** upstream `CMakeLists.txt` builds the `coin_lio` library from sources that include the

@@ -119,6 +119,21 @@ The session gives roslaunch up to 180 s (`--sigint-timeout`, which Melodic's ros
 Verified on the 30 s stairs extract: 149 odometry/path/cloud messages recorded, and `lvi_sam_map/` holds
 `cloudGlobal.pcd`, `cloudSurf.pcd`, `cloudCorner.pcd`, `trajectory.pcd` and `transformations.pcd`.
 
+## Export (Step 4, `export.yaml`)
+
+- Trajectory: `/lvi_sam/lidar/mapping/odometry`, the online scan-to-map poses at about 5 Hz,
+  stamped with the scan time. Body = LiDAR.
+- Extra trajectory: `lvi-sam_keyframes_trajectory_tum.txt` comes from the last `/path` message. It
+  holds the loop-closed keyframe poses, the same as `transformations.pcd`.
+- Map: `lvi_sam_map/cloudGlobal.pcd` (ASCII): the corner and surface features of all keyframes,
+  placed with the loop-closed poses (`mapOptmization.cpp:374-412`).
+  - It is not downsampled: the `downSizeFilterSurf.setInputCloud` there is never followed by `filter()`.
+  - It is sparser than the dense maps of the other algorithms.
+- Not used for the map:
+  - `cloud_registered` holds only ~600 features per scan.
+  - `cloud_registered_raw` (the full deskewed scan, `mapOptmization.cpp:1647-1653`) is published only
+    when something subscribes, and is not recorded.
+
 ## Dockerfile (`algorithms/LVI-SAM/Dockerfile`)
 
 - Done: `ros-melodic-imu-filter-madgwick` and the IMU adapter script.

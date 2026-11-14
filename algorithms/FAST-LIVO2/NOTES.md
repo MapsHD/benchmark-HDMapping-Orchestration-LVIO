@@ -75,15 +75,29 @@ k4: -0.00063
 
 | What | Where |
 | --- | --- |
-| Trajectory | `/aft_mapped_to_init` (`nav_msgs/Odometry`) |
-| Map | `/cloud_registered` (RGB-coloured in LIVO mode, world frame); `pcd_save_en: true` → `Log/pcd/all_raw_points.pcd` |
+| Trajectory | `result/trajectory.txt`: FAST-LIVO2's own TUM file (`evo/pose_output_en`, `LIVMapper.cpp:384-404`), one pose per LIO update, stamped with `last_lio_update_time`. `/aft_mapped_to_init` (`nav_msgs/Odometry`) is still recorded, but it is stamped with `ros::Time::now()` (`LIVMapper.cpp:1340`), the publish time |
+| Map | `/cloud_registered`, world frame `camera_init`. In LIVO mode the LIO step publishes an **empty** cloud and the VIO step the dense scan's points **inside cam0's view**, coloured from the image (`publish_frame_world`, `LIVMapper.cpp:1133-1189`). So there are 2 messages per scan, and the map covers only what cam0 saw |
 
 The FAST-LIO converter from the LIO benchmark needs the odometry topic renamed and `PointXYZRGB` support.
 
 Verified on the 30 s stairs extract: 296 `/aft_mapped_to_init` + 591 `/cloud_registered` messages (54 s run).
 
-`pose_output_en` and `pcd_save_en` are off: they would write into the package's `Log/` inside the
-container. The trajectory and map come from the recorded topics instead.
+**Native trajectory file.** FAST-LIVO2 writes `Log/result/<evo/seq_name>.txt` under `ROOT_DIR`, the
+source directory fixed at compile time (`CMakeLists.txt:40`).
+- The Dockerfile replaces that folder with a link to `/lvio/out/result`.
+- `run.sh` creates `result/` (`LVIO_OUTPUT_SUBDIRS`) and requires `result/trajectory.txt` (`LVIO_RESULT_GLOB`).
+- `config/coco.yaml` sets `seq_name: "trajectory"`.
+- The file uses TUM order (`t x y z qx qy qz qw`), body = Alphasense IMU, 6 decimals.
+
+**`pcd_save_en` stays off.**
+- Type 0 saves the same coloured FOV points as `/cloud_registered`.
+- Type 1 (all points, intensity) keeps the whole map in RAM until shutdown, and the authors warn that
+  saving hurts real time (`LIVMapper.cpp:1190-1192`).
+
+## Export (Step 4, `export.yaml`)
+
+- Trajectory: `result/trajectory.txt`, re-written in the common TUM format.
+- Map: the sum of the coloured `/cloud_registered` clouds (empty ones skipped), as `uchar red green blue` PLY.
 
 ## Dockerfile (`algorithms/FAST-LIVO2/Dockerfile`)
 

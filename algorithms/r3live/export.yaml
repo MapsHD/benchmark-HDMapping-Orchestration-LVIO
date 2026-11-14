@@ -1,0 +1,17 @@
+# Step 4 export of an r3live run (read by export_step4/export_results.py; keys explained there).
+frames:
+  world: world (first Ouster IMU pose)
+  body: Ouster IMU (os_imu)
+trajectory:
+  # /aft_mapped_to_init is stamped with ros::Time::now() (r3live_lio.cpp:1022). /cloud_registered is
+  # published in the same LIO iteration and stamped with lidar_end_time (r3live_lio.cpp:962/1006),
+  # so the n-th pose takes the stamp of the n-th cloud.
+  source: odometry
+  topic: /aft_mapped_to_init
+  stamp_from: /cloud_registered
+map:
+  # The RGB map is only written when 's' is pressed in r3live's control panel (see NOTES.md).
+  source: accumulate
+  topic: /cloud_registered
+  attribute: intensity
+  description: sum of /cloud_registered (dense scans of the LIO subsystem)

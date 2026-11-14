@@ -13,11 +13,13 @@ image, and collects their trajectories and maps. It is the LVIO counterpart of
 | LVI-SAM | [mwlasiuk/mw-LVI-SAM](https://github.com/mwlasiuk/mw-LVI-SAM) |
 | Coco-LIC | [APRIL-ZJU/Coco-LIC](https://github.com/APRIL-ZJU/Coco-LIC) (pinned commit) |
 
-> **Status.** All five images build. On a 30 s extract of `stairs`, all five algorithms ran and
-> produced a trajectory and a map: 4 maps from recorded registered clouds, LVI-SAM also a PCD map,
-> Coco-LIC a trajectory only. Step 1 was checked on the real data, including ROS 1 playback with
-> subscribers. Full-length runs and parameter tuning are still open. Ground-truth evaluation is
-> not part of the pipeline yet.
+> **Status.** All five images build. On the four full-length sequences, 19 of 20 runs succeed, and
+> Step 4 exports each of them as a TUM trajectory and a PLY map.
+> - Coco-LIC on `quad-hard` stops with an OpenCV exception in its visual front end.
+> - r3live falls behind real time on `quad-easy` and `quad-medium`, so its trajectory ends 25.6 s
+>   and 4.0 s before the bag (see the coverage warning in `export.json`).
+>
+> Parameter tuning is still open. Ground-truth evaluation is not part of the pipeline yet.
 
 ## Contents
 
@@ -29,6 +31,7 @@ image, and collects their trajectories and maps. It is the LVIO counterpart of
   - [Step 1 Prepare the common bags](#step-1-prepare-the-common-bags)
   - [Step 2 Build the algorithm images](#step-2-build-the-algorithm-images)
   - [Step 3 Run the algorithms](#step-3-run-the-algorithms)
+  - [Step 4 Export trajectories and maps](#step-4-export-trajectories-and-maps)
 - [3. Algorithms and their inputs](#3-algorithms-and-their-inputs)
 - [4. Results](#4-results)
 - [5. Adding an algorithm](#5-adding-an-algorithm)
@@ -49,11 +52,15 @@ image, and collects their trajectories and maps. It is the LVIO counterpart of
 │   └── Dockerfile                  #   helper image lvio-prepare
 ├── build_images_step2/             # Step 2: docker build of every algorithm
 ├── run_benchmark_step3/            # Step 3: every algorithm on every sequence
+├── export_step4/                   # Step 4: trajectories -> TUM, maps -> PLY (Python, no ROS)
+│   ├── export_step4.sh
+│   └── export_results.py
 ├── common/                         # generic Docker / ROS 1 session used by every run.sh
 ├── algorithms/<ALGORITHM>/
 │   ├── Dockerfile
 │   ├── run.sh                      # one run: run.sh <common_bag> <output_dir>
 │   ├── config/                     # launch file + algorithm configs for the COCO dataset
+│   ├── export.yaml                 # Step 4: where its trajectory and map come from
 │   └── NOTES.md                    # why each input/parameter was chosen, with code references
 ├── datasets/                       # data (git-ignored, see datasets/README.md)
 ├── results/                        # run outputs (git-ignored)
@@ -97,6 +104,7 @@ cd mw-benchmark-HDMapping-Orchestration-LVIO
 chmod +x start_benchmark.sh algos_lib.sh common/*.sh \
     prepare_data_step1/prepare_data_step1.sh prepare_data_step1/make_common_bag.py \
     build_images_step2/build_images_step2.sh run_benchmark_step3/run_benchmark_step3.sh \
+    export_step4/export_step4.sh export_step4/export_results.py \
     algorithms/*/run.sh algorithms/LVI-SAM/lvio/lvio_imu_virtual_frame.py
 ```
 
@@ -116,13 +124,15 @@ ONLY_SEQUENCES="stairs" ./start_benchmark.sh --rviz
 
 | Argument | Purpose | Default |
 | --- | --- | --- |
-| `algorithm-id ...` | restrict Steps 2 and 3 to these algorithms | all |
+| `algorithm-id ...` | restrict Steps 2, 3 and 4 to these algorithms | all |
 | `--force` | Step 3: delete and redo existing results | skip existing |
 | `--rviz` | Step 3: show RViz for every run | off |
 | `--rate RATE` | Step 3: `rosbag play` rate | `1.0` |
-| `ONLY_SEQUENCES` | restrict Steps 1 and 3 to these sequences | all |
+| `ONLY_SEQUENCES` | restrict Steps 1, 3 and 4 to these sequences | all |
 
-Step 1 always keeps existing common bags. Use the Step 1 script directly to rebuild them.
+Step 1 always keeps existing common bags, and Step 4 existing exports. Use the step scripts
+directly to rebuild them. Step 4 also runs when some Step 3 runs failed (it skips those), but not
+after Ctrl-C.
 
 ## Step 1 Prepare the common bags
 
@@ -183,7 +193,7 @@ Each `algorithms/<dir>/Dockerfile` is built as `<id>_<distro>`:
 | Image | Base | Notes |
 | --- | --- | --- |
 | `coin-lio_noetic` | Ubuntu 20.04, ROS Noetic | adds the message-generation dependency missing from upstream's `CMakeLists.txt` (parallel builds failed with `'coin_lio' does not name a type`) |
-| `fast-livo2_noetic` | Ubuntu 20.04, ROS Noetic | Sophus `a621ff`, `rpg_vikit`, `empy==3.3.4` |
+| `fast-livo2_noetic` | Ubuntu 20.04, ROS Noetic | Sophus `a621ff`, `rpg_vikit`, `empy==3.3.4`; links its `Log/result/` to the run's `result/` (native TUM trajectory) |
 | `r3live_noetic` | Ubuntu 20.04, ROS Noetic | patches `Lidar_offset_to_IMU` to the Ouster value; adds `xvfb` (r3live always opens a GUI window) |
 | `lvi-sam_melodic` | Ubuntu 18.04, ROS Melodic | GTSAM 4.0 PPA, Ceres 1.14, `imu_filter_madgwick`, IMU adapter script |
 | `coco-lic_noetic` | Ubuntu 20.04, ROS Noetic | Ceres 2.0, PCL 1.13.1 from source, Coco-LIC pinned to `4ead7e4` |
@@ -215,7 +225,8 @@ A run's status (`ok` / `failed` / `interrupted`) is checked, not assumed. A run 
 - `rosbag play` reports an error (`[FATAL]`, `ROSLZ4_…`, bag exceptions);
 - the algorithm exits before the end of the bag;
 - nothing was recorded on its output topics;
-- (offline mode) the expected result file is missing.
+- a result file the algorithm writes itself is missing (`LVIO_RESULT_GLOB`: the trajectory files of
+  FAST-LIVO2 and Coco-LIC).
 
 The `[lvio] FAILED: ...` lines say why.
 
@@ -254,7 +265,83 @@ Step 3 at it:
 ```shell
 ONLY_SEQUENCES=stairs ./prepare_data_step1/prepare_data_step1.sh --duration 30 --output-dir /tmp/lvio-test/common-ros1
 ONLY_SEQUENCES=stairs ./run_benchmark_step3/run_benchmark_step3.sh --common-dir /tmp/lvio-test/common-ros1 --output-dir /tmp/lvio-test/results
+ONLY_SEQUENCES=stairs ./export_step4/export_step4.sh --common-dir /tmp/lvio-test/common-ros1 --results-dir /tmp/lvio-test/results
 ```
+
+## Step 4 Export trajectories and maps
+
+```shell
+./export_step4/export_step4.sh
+ONLY_ALGOS="coco-lic" ONLY_SEQUENCES="stairs" ./export_step4/export_step4.sh --force
+```
+
+Step 4 exports every successful run, meaning its latest status in `results/run_summary.csv` is `ok`:
+- the trajectory as a **TUM** text file;
+- the map as a **PLY** file.
+
+`export_step4/export_results.py` reads what `algorithms/<dir>/export.yaml` names:
+- recorded topics;
+- files the algorithm wrote itself;
+- for Coco-LIC, the common bag.
+
+It runs in the `lvio-prepare` helper image (Python, no ROS) and never re-runs an algorithm.
+On a quad sequence an export takes 2–25 s, and rebuilding the Coco-LIC map about 45 s.
+All 19 exports take about 2.5 min with `--jobs 2`.
+Each export is written to `export.partial/` and renamed to `export/` when it is complete.
+
+```text
+results/<sequence>/<id>/export/
+├── <id>_trajectory_tum.txt             timestamp tx ty tz qx qy qz qw (space-separated, no header,
+│                                       9-decimal timestamps): body pose in the algorithm's world frame
+├── lvi-sam_keyframes_trajectory_tum.txt  LVI-SAM only: its loop-closed keyframe poses
+├── <id>_map.ply                        binary little-endian PLY in the same world frame:
+│                                       float x y z + float intensity (FAST-LIVO2: uchar red green blue)
+├── <id>_preview.png                    top (world XY) and side (world XZ) view of the map + trajectory
+└── export.json                         sources, frames, counts, time span, path length, notes, warnings
+```
+
+| Algorithm | Trajectory: source, world → body frame, rate | Map |
+| --- | --- | --- |
+| COIN-LIO | `/Odometry`, `camera_init` → Ouster IMU, 10 Hz | sum of `/cloud_registered` (dense scans) |
+| FAST-LIVO2 | its own TUM file `result/trajectory.txt` (LIO update time), `camera_init` → Alphasense IMU, 10 Hz | sum of the coloured `/cloud_registered`, which contains **only the points inside cam0's view** (FAST-LIVO2's colour map) |
+| r3live | `/aft_mapped_to_init` with the stamp of the paired `/cloud_registered`, `world` → Ouster IMU, 10 Hz | sum of `/cloud_registered` (dense scans, no colour) |
+| LVI-SAM | `/lvi_sam/lidar/mapping/odometry`, `odom` → LiDAR, 5 Hz; keyframes from the last `/lvi_sam/lidar/mapping/path` | its own `lvi_sam_map/cloudGlobal.pcd`: features of the loop-closed keyframes, so sparser than the others |
+| Coco-LIC | its own TUM file `data/<sequence>_LICO.txt`, `map` → Alphasense IMU, 100 Hz | **rebuilt** (Coco-LIC saves no map): the common bag's `/lvio/points_xyzirt` scans, each point placed with the trajectory at its own time and the LiDAR–IMU extrinsic of the run's `config/coco/lidar.yaml` |
+
+- **Timestamps.** FAST-LIVO2 and r3live stamp `/aft_mapped_to_init` with the publish time
+  (`ros::Time::now()`), which lags the measurement. For r3live the lag is a median of 0.13–4.6 s per
+  sequence, and up to 26 s on quad-easy. The export uses measurement times instead:
+  - FAST-LIVO2: its own trajectory file (`evo/pose_output_en` in `config/coco.yaml`);
+  - r3live: the `/cloud_registered` message published in the same iteration, stamped with the scan
+    end time. The pairing is checked with the bag record times: each odometry message must arrive
+    after its cloud and before the next one.
+- **Frames.** Every algorithm keeps its own world and body frames (listed in `export.json`).
+  Trajectories are not aligned to each other or to the ground truth.
+- **Map density.** Points are reduced to one per 5 cm voxel (centroid, mean intensity/colour).
+  `--voxel-size 0` keeps every point (e.g. ≈100 M points, 1.6 GB for COIN-LIO on stairs).
+- **Checks.** The run fails if:
+  - fewer than two poses remain, or values are not finite;
+  - a quaternion norm is off by more than 1e-3;
+  - the re-read PLY does not match its header.
+
+  Unsorted or repeated timestamps are fixed and noted in `export.json`.
+- **Warnings** (in `export.json` and the log): the trajectory ends more than 2 s before the common
+  bag, starts more than 10 s after it, or leaves the map's bounding box. `trajectory.coverage`
+  gives the exact offsets.
+
+| Argument or setting | Purpose | Default |
+| --- | --- | --- |
+| `--results-dir DIR` | results of Step 3 | `results` |
+| `--data-dir DIR` | dataset directory | `datasets/COCO` |
+| `--common-dir DIR` | common ROS 1 bags (needed for the Coco-LIC map) | `<data-dir>/common-ros1` |
+| `--voxel-size METERS` | map voxel size, `0` keeps every point | `0.05` |
+| `--jobs N` | exports at the same time (each needs up to ~4 GB of RAM) | `1` |
+| `--force` | redo existing exports | skip existing |
+| `ONLY_ALGOS`, `ONLY_SEQUENCES` | restrict the exports | all |
+
+Every export appends `finished_at,sequence,algorithm,status,seconds,output` to
+`results/export_summary.csv`, with status `ok`, `failed` or `skipped` (a failed run).
+The log of each export is in `results/<sequence>/<id>/logs/export.log`.
 
 # 3. Algorithms and their inputs
 
@@ -280,10 +367,12 @@ The IMU–IMU rotation was checked against the bag data (within 1°).
 
 ```text
 results/
-├── run_summary.csv
+├── run_summary.csv                               Step 3: one line per run
+├── export_summary.csv                            Step 4: one line per export
 └── <sequence>/
     ├── coin-lio/      recorded-coin-lio.bag      /Odometry, /cloud_registered
     ├── fast-livo2/    recorded-fast-livo2.bag    /aft_mapped_to_init, /cloud_registered
+    │                  result/trajectory.txt      FAST-LIVO2's own TUM trajectory (LIO update times)
     ├── r3live/        recorded-r3live.bag        /aft_mapped_to_init, /cloud_registered
     │                  r3live_output/             r3live logs; its RGB map is written here only when
     │                                             's' is pressed in its control panel (needs --rviz)
@@ -295,7 +384,9 @@ results/
 Every folder also contains:
 - `config/`: the exact config used;
 - `logs/`: `launch.log`, `play.log`, `record.log`, `recorded_topics.txt` (message count per output
-  topic) and the ROS logs.
+  topic), the ROS logs and `export.log` (Step 4);
+- `export/`: the TUM trajectory, PLY map, preview and `export.json` written by
+  [Step 4](#step-4-export-trajectories-and-maps).
 
 Conversion of these outputs to HDMapping sessions, and evaluation against ground truth, are not
 implemented yet.
@@ -309,15 +400,18 @@ implemented yet.
      configs from `$(arg out_dir)/config/`;
    - `run.sh`, which exports `LVIO_SETUP`, `LVIO_MODE`, `LVIO_LAUNCH`, `LVIO_PLAY_TOPICS` and
      `LVIO_RECORD_TOPICS` and calls `common/docker_ros1_session.sh` (copy an existing one). Optional:
-     - `LVIO_RESULT_GLOB`: offline mode, the file that must exist afterwards;
+     - `LVIO_RESULT_GLOB`: a file the algorithm writes itself that must exist afterwards (both modes);
      - `LVIO_NEEDS_DISPLAY=1`: the algorithm opens GUI windows; the image then needs `xvfb`;
      - `LVIO_SHUTDOWN_TIMEOUT`: seconds for a graceful stop, default 180;
      - `LVIO_CONTAINER_HOME`, `LVIO_OUTPUT_SUBDIRS`.
 
      The list with descriptions is at the top of `common/docker_ros1_session.sh`;
+   - `export.yaml` for Step 4: where its trajectory and map come from and its world/body frames.
+     The sources (`odometry`, `tum_file`, `path_last`; `accumulate`, `pcd`, `reconstruct`) are
+     described at the top of `export_step4/export_results.py`. Copy the closest existing one;
    - `NOTES.md` with the reasons for its inputs and parameters.
 3. Build it with `ONLY_ALGOS=<id> ./build_images_step2/build_images_step2.sh`, then test it on a
-   short common bag (see the quick end-to-end test in Step 3).
+   short common bag (see the quick end-to-end test in Step 3), including Step 4.
 
 # 6. Troubleshooting
 
@@ -329,3 +423,6 @@ implemented yet.
 | An image build failed | `docker buildx history ls`, then `docker buildx history logs <build id>` show the full log. |
 | `REQUIRED process [...] has died! ... exit code -11` after `cannot open display` in `logs/launch.log` | The algorithm opens a GUI window. Set `LVIO_NEEDS_DISPLAY=1` in its `run.sh` and add `xvfb` to its image (as for r3live). |
 | A run `failed` | Read the `[lvio] FAILED:` lines, then `logs/launch.log` / `logs/play.log` in its result folder. |
+| Step 4 skips a run (`... export exists` or `its latest run is 'failed'`) | Use `--force` to redo an export. A failed run has nothing to export; redo the run in Step 3. |
+| An export `failed` | Read the `[export] FAILED:` line in `results/<sequence>/<id>/logs/export.log`. |
+| `export.json` warns `the trajectory ends N s before the end of the input bag` | The algorithm fell behind real time, and the recorder stopped 10 s after the bag ended (`LVIO_DRAIN_SECONDS` in `common/ros1_session.sh`). It stopped before the algorithm caught up. Seen for r3live on quad-easy and quad-medium. |

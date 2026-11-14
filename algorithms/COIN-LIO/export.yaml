@@ -1,0 +1,12 @@
+# Step 4 export of a COIN-LIO run (read by export_step4/export_results.py; keys explained there).
+frames:
+  world: camera_init (first Ouster IMU pose)
+  body: Ouster IMU (os_imu)
+trajectory:
+  source: odometry                 # recorded-coin-lio.bag; header stamp = scan end time
+  topic: /Odometry
+map:
+  source: accumulate               # every full undistorted scan, already in camera_init
+  topic: /cloud_registered
+  attribute: intensity
+  description: sum of /cloud_registered (dense scans placed with the online poses)

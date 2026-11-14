@@ -1,0 +1,18 @@
+# Step 4 export of a Coco-LIC run (read by export_step4/export_results.py; keys explained there).
+frames:
+  world: map (gravity aligned, z up)
+  body: Alphasense IMU (z down)
+trajectory:
+  source: tum_file                 # Coco-LIC's own TUM file, 100 Hz samples of its continuous-time trajectory
+  file: data/*_LICO.txt
+map:
+  # Coco-LIC saves no map. Rebuilt from the scans it used (common bag), each point placed with the
+  # trajectory at its own time (header = scan start + 'time'), as Coco-LIC models it.
+  source: reconstruct
+  topic: /lvio/points_xyzirt
+  time_field: time
+  extrinsic: {file: config/coco/lidar.yaml, key: lidar0.Extrinsics}   # LiDAR pose in the IMU: Trans, Rot row-major
+  min_range: {file: config/coco/lidar.yaml, key: VLP16.min_distance}
+  max_range: {file: config/coco/lidar.yaml, key: VLP16.max_distance}
+  attribute: intensity
+  description: rebuilt from the common bag's scans and Coco-LIC's trajectory (not an output of Coco-LIC)

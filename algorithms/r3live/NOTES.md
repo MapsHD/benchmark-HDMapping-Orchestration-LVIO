@@ -79,6 +79,34 @@ r3live estimates the camera–IMU time offset online, so no setting is needed.
 | Trajectory | `/aft_mapped_to_init` (`nav_msgs/Odometry`) |
 | Map | `/cloud_registered` (recorded). The RGB map is written to `map_output_dir` **only when 's' is pressed in r3live's OpenCV "Control panel" window** (`cv_keyboard_callback`, `r3live_vio.cpp:1076`), not on shutdown. To get it, run with `--rviz` (real display) and press 's' before the bag ends. It is meshable with `r3live_reconstruct_mesh.launch`. |
 
+## Export (Step 4, `export.yaml`)
+
+- Trajectory: `/aft_mapped_to_init` is stamped with `ros::Time::now()` (`r3live_lio.cpp:1022`), the
+  publish time.
+  - Each pose takes the stamp of the `/cloud_registered` message published in the same LIO
+    iteration. That stamp is `lidar_end_time` (`r3live_lio.cpp:962/1006`).
+  - The messages are paired by index, and the pairing is checked with the bag record times.
+  - Stairs: paired messages were recorded at most 111 ms apart (median 20 ms). The publish lag
+    reached 1.24 s when r3live fell behind for ~17 scans near the end.
+- Map: the sum of `/cloud_registered`: x y z + intensity, no colour (see above for the RGB map).
+
+**r3live falls behind real time on the quad sequences (full runs, 2026-11-14).**
+
+| Sequence | publish lag, median / max | trajectory ends before the bag | loop start→end |
+| --- | --- | --- | --- |
+| stairs | 0.13 / 1.2 s | 0.1 s | 0.44 m |
+| quad-easy | 4.6 / 25.7 s | **25.6 s** (1731 of ~1990 scans) | 28 m (cut short) |
+| quad-medium | 0.6 / 6.0 s | **4.0 s** | 2.0 m |
+| quad-hard | 0.2 / 5.1 s | 0.1 s | 3.8 m (double walls in the map) |
+
+- No scan is dropped: the cloud stamps step by 0.1 s.
+- The cause is the recorder stopping 10 s after the bag ends, while r3live is still working through
+  its backlog. Once there was also a ~9 s stall with no output at all.
+- The other algorithms close the quad loops within 0.4 m.
+- Possible fixes, not applied:
+  - a longer drain for r3live (`LVIO_DRAIN_SECONDS`, which `docker_ros1_session.sh` would need to pass on);
+  - a slower `rosbag play` rate.
+
 ## Display and shutdown (found in the first runs)
 
 - `service_VIO_update` always calls `cv::imshow("Control panel", ...)` (`r3live_vio.cpp:1095`). Without a

@@ -13,7 +13,8 @@
 #   LVIO_PLAY_TOPICS     topics to play (play mode)
 #   LVIO_RECORD_TOPICS   topics to record (play mode)
 #   LVIO_OUTPUT_SUBDIRS  folders to create in the output dir before the run (optional)
-#   LVIO_RESULT_GLOB     offline mode: result file(s) that must exist afterwards, relative to the output dir
+#   LVIO_RESULT_GLOB     result file(s) the algorithm writes itself, relative to the output dir; the run
+#                        fails if none is non-empty afterwards (optional, both modes)
 #   LVIO_NEEDS_DISPLAY=1 the algorithm opens GUI windows: without LVIO_RVIZ=1 the session starts Xvfb
 #                        (the image must contain xvfb)
 #   LVIO_SHUTDOWN_TIMEOUT seconds allowed for a graceful stop / map saving (default 180)

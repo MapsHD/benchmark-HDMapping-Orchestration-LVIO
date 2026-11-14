@@ -81,8 +81,11 @@ publish:
   blind_rgb_points: 0.0
 
 evo:
-  seq_name: "coco"
-  pose_output_en: false       # trajectory is recorded from /aft_mapped_to_init instead
+  # Native TUM trajectory, stamped with the LIO update time (/aft_mapped_to_init is stamped with
+  # ros::Time::now(), i.e. publish time). Written to Log/result/<seq_name>.txt, which the image
+  # links to <output>/result/ (Dockerfile), so it lands in result/trajectory.txt.
+  seq_name: "trajectory"
+  pose_output_en: true
 
 pcd_save:
   pcd_save_en: false          # map is recorded from /cloud_registered instead
