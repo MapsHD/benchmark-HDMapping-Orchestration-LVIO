@@ -1,7 +1,10 @@
-# Step 4 export of an LVI-SAM run (read by steps/4_export/export_results.py; keys explained there).
+# Step 4 export and Step 5 evaluation of an LVI-SAM run (keys explained in steps/4_export/export_results.py and steps/5_evaluate_trajectories/evaluate_trajectories.py).
 frames:
   world: odom (LVI-SAM map frame)
   body: LiDAR (os_sensor; LVI-SAM optimises the LiDAR pose)
+lidar_extrinsic:                   # Step 5: the body frame is the LiDAR itself
+  rotation: identity
+  translation: [0, 0, 0]
 trajectory:
   source: odometry                 # online scan-to-map poses; header stamp = scan time
   topic: /lvi_sam/lidar/mapping/odometry

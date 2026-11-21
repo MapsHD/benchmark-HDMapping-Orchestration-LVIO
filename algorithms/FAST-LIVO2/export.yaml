@@ -1,7 +1,10 @@
-# Step 4 export of a FAST-LIVO2 run (read by steps/4_export/export_results.py; keys explained there).
+# Step 4 export and Step 5 evaluation of a FAST-LIVO2 run (keys explained in steps/4_export/export_results.py and steps/5_evaluate_trajectories/evaluate_trajectories.py).
 frames:
   world: camera_init (first Alphasense IMU pose)
   body: Alphasense IMU (z down)
+lidar_extrinsic:                   # Step 5: LiDAR (os_sensor) pose in the body frame, as FAST-LIVO2 is configured
+  rotation: {file: config/coco.yaml, key: extrin_calib.extrinsic_R}       # row-major, p_imu = R p_lidar + T
+  translation: {file: config/coco.yaml, key: extrin_calib.extrinsic_T}
 trajectory:
   # FAST-LIVO2's own TUM file (config/coco.yaml, evo:), stamped with the LIO update time.
   # /aft_mapped_to_init is stamped with ros::Time::now() (LIVMapper.cpp:1340), i.e. publish time.

@@ -87,7 +87,8 @@ export_one() {
     local cmd=(docker run --rm --init --user "$(id -u):$(id -g)"
                -v "$run":/lvio/run
                -v "$LVIO_ROOT/algorithms/$dir/export.yaml":/lvio/export.yaml:ro
-               -v "$SCRIPT_DIR":/app:ro)
+               -v "$SCRIPT_DIR":/app:ro
+               -v "$LVIO_ROOT/common/lvio_py":/lvio_py:ro -e PYTHONPATH=/lvio_py)
     if [ -f "$COMMON_DIR/$seq.bag" ]; then
         cmd+=(-v "$COMMON_DIR/$seq.bag":/lvio/common.bag:ro)
     fi

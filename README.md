@@ -13,13 +13,14 @@ image, and collects their trajectories and maps. It is the LVIO counterpart of
 | LVI-SAM | [mwlasiuk/mw-LVI-SAM](https://github.com/mwlasiuk/mw-LVI-SAM) |
 | Coco-LIC | [APRIL-ZJU/Coco-LIC](https://github.com/APRIL-ZJU/Coco-LIC) (pinned commit) |
 
-> **Status.** All five images build. On the four full-length sequences, 19 of 20 runs succeed, and
-> Step 4 exports each of them as a TUM trajectory and a PLY map.
-> - Coco-LIC on `quad-hard` stops with an OpenCV exception in its visual front end.
-> - r3live falls behind real time on `quad-easy` and `quad-medium`, so its trajectory ends 25.6 s
->   and 4.0 s before the bag (see the coverage warning in `export.json`).
+> **Status.** All five images build. The latest full run (2026-11-14) has 18 of 20 runs ok:
+> - Coco-LIC on `quad-easy` and `quad-hard` stops with an OpenCV exception in its visual front end.
+> - r3live falls behind real time on `quad-easy` and `quad-medium`, so its trajectory ends 26 s
+>   and 10 s before the bag (see the coverage in Steps 5 and 6).
 >
-> Parameter tuning is still open. Ground-truth evaluation is not part of the pipeline yet.
+> Steps 4–6 export every successful run (TUM trajectory, PLY map) and evaluate the trajectories
+> against the ground truth (APE/RPE with evo, coverage). Evaluating the maps needs a reference map
+> and is not part of the pipeline yet. Parameter tuning is still open.
 
 ## Contents
 
@@ -33,6 +34,8 @@ image, and collects their trajectories and maps. It is the LVIO counterpart of
   - [Step 2 Build the algorithm images](#step-2-build-the-algorithm-images)
   - [Step 3 Run the algorithms](#step-3-run-the-algorithms)
   - [Step 4 Export trajectories and maps](#step-4-export-trajectories-and-maps)
+  - [Step 5 Evaluate the trajectories](#step-5-evaluate-the-trajectories)
+  - [Step 6 Ground-truth coverage](#step-6-ground-truth-coverage)
 - [3. Algorithms and their inputs](#3-algorithms-and-their-inputs)
 - [4. Results](#4-results)
 - [5. Adding an algorithm](#5-adding-an-algorithm)
@@ -58,15 +61,23 @@ image, and collects their trajectories and maps. It is the LVIO counterpart of
 │   │   └── build_images.sh         # Step 2: docker build of every algorithm
 │   ├── 3_run_benchmark/
 │   │   └── run_benchmark.sh        # Step 3: every algorithm on every sequence
-│   └── 4_export/                   # Step 4: trajectories -> TUM, maps -> PLY (Python, no ROS)
-│       ├── export.sh
-│       └── export_results.py
+│   ├── 4_export/                   # Step 4: trajectories -> TUM, maps -> PLY (Python, no ROS)
+│   │   ├── export.sh
+│   │   └── export_results.py
+│   ├── 5_evaluate_trajectories/    # Step 5: APE / RPE against the ground truth (evo)
+│   │   ├── evaluate_trajectories.sh
+│   │   ├── evaluate_trajectories.py
+│   │   └── Dockerfile              #   helper image lvio-eval (Steps 5 and 6)
+│   └── 6_overlap/                  # Step 6: ground-truth coverage
+│       ├── overlap.sh
+│       └── overlap.py
 ├── common/                         # generic Docker / ROS 1 session used by every run.sh
+│   └── lvio_py/                    #   Python shared by Steps 4-6 (TUM files, poses, results layout)
 ├── algorithms/<ALGORITHM>/
 │   ├── Dockerfile
 │   ├── run.sh                      # one run: run.sh <common_bag> <output_dir>
 │   ├── config/                     # launch file + algorithm configs for the COCO dataset
-│   ├── export.yaml                 # Step 4: where its trajectory and map come from
+│   ├── export.yaml                 # Steps 4-5: its trajectory and map sources, frames, LiDAR extrinsic
 │   └── NOTES.md                    # why each input/parameter was chosen, with code references
 ├── datasets/                       # data (git-ignored, see datasets/README.md)
 ├── results/                        # run outputs (git-ignored)
@@ -107,7 +118,9 @@ The expected layout is in [datasets/README.md](datasets/README.md).
 [validate.sh](validate.sh) checks:
 - Docker: the `docker` command, a running daemon, and access without `sudo`;
 - the COCO dataset: every original bag of [sequences.conf](sequences.conf) is in `datasets/COCO/`
-  and is a readable ROS 1 bag.
+  and is a readable ROS 1 bag;
+- the ground truth of every sequence: `datasets/COCO/ground_truth/gt-nc-<sequence>.csv` with its
+  `#sec,nsec,x,y,z,qx,qy,qz,qw` header (Steps 5 and 6).
 
 It changes nothing and exits 1 if a check fails. `start_benchmark.sh` runs it before Step 1;
 run it yourself when you run the steps one by one. It honours `ONLY_SEQUENCES` and takes
@@ -118,9 +131,10 @@ run it yourself when you run the steps one by one. It honours `ONLY_SEQUENCES` a
 ```
 
 [clean.sh](clean.sh) removes what the steps produced:
-- this benchmark's Docker images: `lvio-prepare` and the five `<id>_<distro>` images, no others;
+- this benchmark's Docker images: `lvio-prepare`, `lvio-eval` and the five `<id>_<distro>` images,
+  no others;
 - the common bags of Step 1 (`datasets/COCO/common-ros1/`, about 59 GB);
-- the results of Steps 3 and 4 (everything in `results/`).
+- the results of Steps 3 to 6 (everything in `results/`).
 
 It keeps:
 - the original bags, `cam_calibration/` and `ground_truth/`;
@@ -145,6 +159,8 @@ chmod +x start_benchmark.sh validate.sh clean.sh algos_lib.sh common/*.sh \
     steps/1_prepare_data/prepare_data.sh steps/1_prepare_data/make_common_bag.py \
     steps/2_build_images/build_images.sh steps/3_run_benchmark/run_benchmark.sh \
     steps/4_export/export.sh steps/4_export/export_results.py \
+    steps/5_evaluate_trajectories/evaluate_trajectories.sh steps/5_evaluate_trajectories/evaluate_trajectories.py \
+    steps/6_overlap/overlap.sh steps/6_overlap/overlap.py \
     algorithms/*/run.sh algorithms/LVI-SAM/lvio/lvio_imu_virtual_frame.py
 ```
 
@@ -167,15 +183,15 @@ given, it also stops at once when there is no X display.
 
 | Argument | Purpose | Default |
 | --- | --- | --- |
-| `algorithm-id ...` | restrict Steps 2, 3 and 4 to these algorithms | all |
+| `algorithm-id ...` | restrict Steps 2-6 to these algorithms | all |
 | `--force` | Step 3: delete and redo existing results | skip existing |
 | `--no-rviz` | Step 3: run without RViz (headless) | RViz shown |
 | `--rate RATE` | Step 3: `rosbag play` rate | `1.0` |
-| `ONLY_SEQUENCES` | restrict Steps 1, 3 and 4 to these sequences | all |
+| `ONLY_SEQUENCES` | restrict Steps 1 and 3-6 to these sequences | all |
 
 Step 1 always keeps existing common bags, and Step 4 existing exports. Use the step scripts
-directly to rebuild them. Step 4 also runs when some Step 3 runs failed (it skips those), but not
-after Ctrl-C.
+directly to rebuild them. Steps 5 and 6 always recompute (seconds). Steps 4-6 also run when some
+Step 3 runs failed (they skip those and list them as missing), but not after Ctrl-C.
 
 ## Step 1 Prepare the common bags
 
@@ -311,7 +327,11 @@ Step 3 at it:
 ONLY_SEQUENCES=stairs ./steps/1_prepare_data/prepare_data.sh --duration 30 --output-dir /tmp/lvio-test/common-ros1
 ONLY_SEQUENCES=stairs ./steps/3_run_benchmark/run_benchmark.sh --common-dir /tmp/lvio-test/common-ros1 --output-dir /tmp/lvio-test/results --no-rviz
 ONLY_SEQUENCES=stairs ./steps/4_export/export.sh --common-dir /tmp/lvio-test/common-ros1 --results-dir /tmp/lvio-test/results
+ONLY_SEQUENCES=stairs ./steps/5_evaluate_trajectories/evaluate_trajectories.sh --results-dir /tmp/lvio-test/results
 ```
+
+On a 30 s extract the trajectories cover only the first 30 s of the ground truth, so Step 5 marks
+them as partial (†).
 
 ## Step 4 Export trajectories and maps
 
@@ -388,6 +408,101 @@ Every export appends `finished_at,sequence,algorithm,status,seconds,output` to
 `results/export_summary.csv`, with status `ok`, `failed` or `skipped` (a failed run).
 The log of each export is in `results/<sequence>/<id>/logs/export.log`.
 
+## Step 5 Evaluate the trajectories
+
+```shell
+./steps/5_evaluate_trajectories/evaluate_trajectories.sh
+ONLY_ALGOS="fast-livo2" ./steps/5_evaluate_trajectories/evaluate_trajectories.sh --rpe-delta 20
+```
+
+Evaluates every exported trajectory (Step 4) against the Newer College ground truth
+`datasets/COCO/ground_truth/gt-nc-<sequence>.csv`: 10 Hz, one pose per LiDAR scan, stamped with the
+scan's header time. It runs in the `lvio-eval` helper image (Python, evo 1.38.1, no ROS) and takes
+a few seconds for all runs. For each run:
+
+1. **Common body frame.** The algorithms report different body frames: the Ouster IMU, the
+   Alphasense IMU, or the LiDAR. Each trajectory is converted to the ground truth's body frame:
+   `T_world_gt = T_world_body · T_body_lidar · T_lidar_gt`.
+   - `T_body_lidar` is the LiDAR extrinsic the algorithm was configured with (`lidar_extrinsic` in
+     its `export.yaml`, read from the run's own config copy where it lives there).
+   - `T_lidar_gt` is one value for all algorithms: `base_frame` in
+     [coco_calibration.yaml](steps/1_prepare_data/coco_calibration.yaml).
+   - The dataset documentation calls the ground-truth frame `Base`. The two URDFs of the rig give
+     different `Base` → LiDAR offsets, and the data fits neither; it shows the ground truth is the
+     LiDAR (`os_sensor`) pose, within about 1 cm. So `T_lidar_gt` is the identity. The check is
+     described in `coco_calibration.yaml`.
+2. **Same instants for everyone.** Each trajectory is resampled at the ground-truth stamps:
+   - linear interpolation for the position, slerp for the rotation;
+   - only inside its own time span, and never across its own gaps longer than `--max-gap` (0.5 s);
+   - the algorithms' output rates (5, 10 or 100 Hz) and stamps (scan start or end, image times,
+     spline samples) therefore do not matter.
+3. **APE** (evo): translation and rotation error after SE(3) Umeyama alignment of the whole
+   trajectory (no scale), as in the LIO benchmark's Step 5.
+4. **RPE** (evo): translation [%] and rotation [deg/m] over `--rpe-delta` (10 m) segments.
+   - The segments are taken along the ground truth, so every algorithm is compared on the same
+     pairs.
+   - LIO's 1-frame RPE is not used: it depends on the output rate.
+5. **Time-shift diagnostic** (not applied): the translation APE for trajectory time shifts of
+   −0.2…+0.2 s. On good runs the best shift is 0.00–0.01 s, which confirms the stamps.
+
+```text
+results/
+├── evaluation/
+│   ├── trajectory_summary.csv      one row per (sequence, algorithm): status, coverage, APE, RPE, time shift
+│   ├── trajectory_summary.md       tables algorithms x sequences (best per sequence in bold) + notes
+│   └── trajectory_summary.tex      APE and RPE tables for LaTeX
+└── <sequence>/evaluation/trajectories/
+    ├── ground_truth_tum.txt        the ground truth as TUM (exact ns stamps)
+    ├── trajectories.png            top (x, y) and side (x, z) view, all algorithms aligned + ground truth
+    ├── ape_over_time.png           translation error over time
+    └── <id>/
+        ├── <id>_base_tum.txt       the trajectory in the ground-truth body frame, at the ground-truth stamps
+        ├── <id>_aligned_tum.txt    the same after SE(3) alignment, i.e. in the ground-truth frame
+        ├── metrics.json            coverage, alignment, APE, RPE, time shift, frames and extrinsics used
+        └── time_shift.csv          APE RMSE per time shift
+```
+
+- A run without an export appears as `missing`, with the reason (e.g. `run failed (Step 3)`).
+- A run covering less than 99 % of the ground truth is marked † in the tables. Its errors describe
+  only the part it covers, and Step 6 gives the details.
+- `<id>_base_tum.txt` and `ground_truth_tum.txt` share their stamps, so they can be passed to evo
+  directly, e.g. `evo_ape tum ground_truth_tum.txt coin-lio/coin-lio_base_tum.txt -a -p`.
+- Seven stairs ground-truth quaternions are printed with too few digits (e.g. `qw = -0.3`) and are
+  renormalised; the log says so.
+
+| Argument or setting | Purpose | Default |
+| --- | --- | --- |
+| `--results-dir DIR` | results of Steps 3 and 4 | `results` |
+| `--data-dir DIR` | dataset directory (`ground_truth/` inside) | `datasets/COCO` |
+| `--max-gap SECONDS` | longest own gap a trajectory is interpolated across | `0.5` |
+| `--rpe-delta METERS` | RPE segment length along the ground truth | `10` |
+| `ONLY_ALGOS`, `ONLY_SEQUENCES` | re-evaluate only these runs (the summary keeps every run evaluated so far) | all |
+
+## Step 6 Ground-truth coverage
+
+```shell
+./steps/6_overlap/overlap.sh
+```
+
+How much of the ground truth each exported trajectory covers, per sequence. The LIO benchmark's
+Step 6 reports the duration ratio and the node-count ratio. The node ratio depends on the output
+rate, so here the coverage is measured on the ground-truth time line:
+
+| Column | Meaning |
+| --- | --- |
+| Covered | share of the ground-truth stamps inside the trajectory and not in one of its own gaps longer than `--max-gap`: the stamps Step 5 evaluates |
+| Start delay | first trajectory pose minus first ground-truth pose |
+| Ends early by | last ground-truth pose minus last trajectory pose (> 0: the trajectory stops early, e.g. r3live falling behind real time) |
+| Longest gap | longest interval between two trajectory poses |
+| Rate, Poses | median output rate and pose count |
+| Duration ratio | trajectory duration / ground-truth duration (LIO's "metric 1") |
+
+Output:
+- `results/evaluation/overlap_summary.{csv,md,tex}`;
+- `results/<sequence>/evaluation/overlap/<id>.json`.
+
+Arguments: `--results-dir`, `--data-dir`, `--max-gap` (as Step 5), `ONLY_ALGOS`, `ONLY_SEQUENCES`.
+
 # 3. Algorithms and their inputs
 
 Each algorithm gets what it uses: an IMU only where it uses one, the camera form it supports, and
@@ -414,6 +529,7 @@ The IMU–IMU rotation was checked against the bag data (within 1°).
 results/
 ├── run_summary.csv                               Step 3: one line per run
 ├── export_summary.csv                            Step 4: one line per export
+├── evaluation/                                   Steps 5-6: trajectory_summary.*, overlap_summary.*
 └── <sequence>/
     ├── coin-lio/      recorded-coin-lio.bag      /Odometry, /cloud_registered
     ├── fast-livo2/    recorded-fast-livo2.bag    /aft_mapped_to_init, /cloud_registered
@@ -433,8 +549,13 @@ Every folder also contains:
 - `export/`: the TUM trajectory, PLY map, preview and `export.json` written by
   [Step 4](#step-4-export-trajectories-and-maps).
 
-Conversion of these outputs to HDMapping sessions, and evaluation against ground truth, are not
-implemented yet.
+`results/<sequence>/evaluation/` holds the per-run evaluation of
+[Steps 5 and 6](#step-5-evaluate-the-trajectories).
+
+Not implemented yet:
+- evaluation of the maps (registration, cloud metrics and visual comparison, LIO Steps 7-9),
+  which needs a reference map;
+- conversion to HDMapping sessions.
 
 # 5. Adding an algorithm
 
@@ -451,12 +572,18 @@ implemented yet.
      - `LVIO_CONTAINER_HOME`, `LVIO_OUTPUT_SUBDIRS`.
 
      The list with descriptions is at the top of `common/docker_ros1_session.sh`;
-   - `export.yaml` for Step 4: where its trajectory and map come from and its world/body frames.
-     The sources (`odometry`, `tum_file`, `path_last`; `accumulate`, `pcd`, `reconstruct`) are
-     described at the top of `steps/4_export/export_results.py`. Copy the closest existing one;
+   - `export.yaml` for Steps 4 and 5:
+     - where its trajectory and map come from: the sources `odometry`, `tum_file`, `path_last`;
+       `accumulate`, `pcd`, `reconstruct`, described at the top of
+       `steps/4_export/export_results.py`;
+     - its world and body frames;
+     - `lidar_extrinsic`: the LiDAR pose in its body frame, as the algorithm is configured.
+       Step 5 needs it to compare with the ground truth.
+
+     Copy the closest existing one;
    - `NOTES.md` with the reasons for its inputs and parameters.
 3. Build it with `ONLY_ALGOS=<id> ./steps/2_build_images/build_images.sh`, then test it on a
-   short common bag (see the quick end-to-end test in Step 3), including Step 4.
+   short common bag (see the quick end-to-end test in Step 3), including Steps 4 and 5.
 
 # 6. Troubleshooting
 
@@ -472,4 +599,6 @@ implemented yet.
 | `validate.sh` reports `FAIL` | Fix what the line names: Docker access, or a missing or unreadable bag in `datasets/COCO/`. |
 | Step 4 skips a run (`... export exists` or `its latest run is 'failed'`) | Use `--force` to redo an export. A failed run has nothing to export; redo the run in Step 3. |
 | An export `failed` | Read the `[export] FAILED:` line in `results/<sequence>/<id>/logs/export.log`. |
+| Step 5/6 list a run as `missing` | It has no Step 4 export; the reason column says why (`run failed (Step 3)`, `no export (Step 4)`). |
+| Step 5 marks a run with † | It covers less than 99 % of the ground truth (see Step 6). Its errors describe only the covered part. |
 | `export.json` warns `the trajectory ends N s before the end of the input bag` | The algorithm fell behind real time, and the recorder stopped 10 s after the bag ended (`LVIO_DRAIN_SECONDS` in `common/ros1_session.sh`). It stopped before the algorithm caught up. Seen for r3live on quad-easy and quad-medium. |

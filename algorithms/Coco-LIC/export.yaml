@@ -1,7 +1,10 @@
-# Step 4 export of a Coco-LIC run (read by steps/4_export/export_results.py; keys explained there).
+# Step 4 export and Step 5 evaluation of a Coco-LIC run (keys explained in steps/4_export/export_results.py and steps/5_evaluate_trajectories/evaluate_trajectories.py).
 frames:
   world: map (gravity aligned, z up)
   body: Alphasense IMU (z down)
+lidar_extrinsic:                   # Step 5: LiDAR (os_sensor) pose in the body frame, as Coco-LIC is configured
+  rotation: {file: config/coco/lidar.yaml, key: lidar0.Extrinsics.Rot}    # row-major
+  translation: {file: config/coco/lidar.yaml, key: lidar0.Extrinsics.Trans}
 trajectory:
   source: tum_file                 # Coco-LIC's own TUM file, 100 Hz samples of its continuous-time trajectory
   file: data/*_LICO.txt

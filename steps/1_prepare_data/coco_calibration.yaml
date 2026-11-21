@@ -22,3 +22,17 @@ cam0_rect:
   resolution: [720, 540]
   intrinsics: [272.29, 273.70, 357.52, 255.50]        # fx, fy, cx, cy; no distortion
   jpeg_quality: 95
+
+# Ground-truth body frame, used by Step 5 to bring every trajectory into the ground truth's frame.
+# The Newer College docs say the multi-cam ground truth is the pose of 'Base' ("the bottom centre of
+# the printed computer case"). ori-drs/halo_description gives two different base -> os_sensor
+# translations (rotation identity in both): halo.urdf.xacro (0.001, 0, 0.090683) m and the generated
+# halo.urdf (-0.059, 0, 0.051) m. The data rejects both (notes/scripts/base_frame_check.py, 2026-11-21):
+# a free least-squares fit of the lever arm on the good quad runs gives about (-0.01, 0.00, 0.01) m,
+# and identity gives the lowest or equal APE in 15 of 18 runs. So the ground truth is treated as the
+# os_sensor (LiDAR) pose, i.e. T_base_ossensor = identity. Change it here if better information appears.
+base_frame:
+  source: data check (notes/08 and notes/scripts/base_frame_check.py); URDF candidates rejected
+  T_base_ossensor:                  # os_sensor (LiDAR) pose in the ground-truth body frame
+    rotation: identity
+    translation: [0.0, 0.0, 0.0]

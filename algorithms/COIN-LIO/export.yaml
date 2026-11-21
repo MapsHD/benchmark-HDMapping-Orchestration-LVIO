@@ -1,7 +1,11 @@
-# Step 4 export of a COIN-LIO run (read by steps/4_export/export_results.py; keys explained there).
+# Step 4 export and Step 5 evaluation of a COIN-LIO run (keys explained in steps/4_export/export_results.py and steps/5_evaluate_trajectories/evaluate_trajectories.py).
 frames:
   world: camera_init (first Ouster IMU pose)
   body: Ouster IMU (os_imu)
+lidar_extrinsic:                   # Step 5: LiDAR (os_sensor) pose in the body frame, as COIN-LIO is configured
+  # Shipped config/params.yaml in the image (mapping/extrinsic_T, extrinsic_R; kept as shipped, see NOTES.md)
+  rotation: identity
+  translation: [-0.00625, 0.011775, 0.028535]
 trajectory:
   source: odometry                 # recorded-coin-lio.bag; header stamp = scan end time
   topic: /Odometry

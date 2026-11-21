@@ -1,8 +1,9 @@
 #!/bin/bash
 # Removes everything the benchmark steps produced (see README.md, "Validate and clean"):
-#   Docker images  lvio-prepare (Steps 1 and 4) and <id>_<distro> of every algorithms.conf row (Step 2)
+#   Docker images  lvio-prepare (Steps 1 and 4), lvio-eval (Steps 5 and 6) and <id>_<distro> of every
+#                  algorithms.conf row (Step 2)
 #   Step 1         datasets/COCO/common-ros1/ (and the obsolete datasets/COCO/common/ with LZ4 bags)
-#   Steps 3 and 4  everything in results/ except its .gitignore
+#   Steps 3 to 6   everything in results/ except its .gitignore (runs, exports, evaluation)
 # Kept: the original bags, cam_calibration/, ground_truth/, the repository and notes/.
 # Only this benchmark's images are removed; other images and Docker's build cache are not touched.
 set -euo pipefail
@@ -12,7 +13,7 @@ ROOT="$(cd "$(dirname "$0")" && pwd)"
 source "$ROOT/algos_lib.sh"
 unset ONLY_ALGOS ONLY_SEQUENCES   # clean always covers every algorithm and sequence
 
-HELPER_IMAGE="lvio-prepare"
+HELPER_IMAGES=("lvio-prepare" "lvio-eval")
 DATA_DIR="$LVIO_ROOT/datasets/COCO"
 RESULTS_DIR="$LVIO_ROOT/results"
 DRY_RUN=0
@@ -22,7 +23,7 @@ usage() {
 Usage: $0 [--dry-run]
 
 Removes the outputs of all steps: this benchmark's Docker images, the common bags of Step 1
-(datasets/COCO/common-ros1/) and the results of Steps 3 and 4 (results/). The original
+(datasets/COCO/common-ros1/) and the results of Steps 3 to 6 (results/). The original
 dataset is kept. Lists what it will remove and asks you to type CLEAN to confirm.
 
   --dry-run   only list what would be removed
@@ -43,7 +44,7 @@ if ! command -v docker >/dev/null || ! timeout 30 docker info >/dev/null 2>&1; t
 fi
 
 # ---------------------------------------------------------------- what to remove
-TAGS=("$HELPER_IMAGE")
+TAGS=("${HELPER_IMAGES[@]}")
 while IFS=$'\t' read -r distro _dir id _input; do
     TAGS+=("$(image_tag "$id" "$distro")")
 done < <(algo_rows)

@@ -47,7 +47,8 @@ import numpy as np
 import yaml
 from rosbags.highlevel import AnyReader
 
-NS = 1_000_000_000
+# common/lvio_py, on PYTHONPATH (export.sh mounts it)
+from lvio_trajectory import NS, TrajectoryError, format_time_ns, read_tum, resolve, write_tum
 
 
 class ExportError(RuntimeError):
@@ -59,21 +60,6 @@ def log(msg):
 
 
 # ------------------------------------------------------------------ spec helpers
-
-def resolve(value, run_dir):
-    """A literal, or {file, key}: the value at dotted key in a YAML file of the run folder."""
-    if isinstance(value, dict) and 'file' in value and 'key' in value:
-        path = run_dir / value['file']
-        if not path.is_file():
-            raise ExportError(f'missing {path} (referenced by the export spec)')
-        node = yaml.safe_load(path.read_text())
-        for part in str(value['key']).split('.'):
-            if not isinstance(node, dict) or part not in node:
-                raise ExportError(f"key '{value['key']}' not found in {path}")
-            node = node[part]
-        return node
-    return value
-
 
 def one_file(run_dir, pattern):
     matches = sorted(glob.glob(str(run_dir / pattern)))
@@ -127,18 +113,15 @@ class Trajectory:
         return self
 
     def write_tum(self, path):
-        with open(path, 'w') as f:
-            for t, p, q in zip(self.t_ns, self.p, self.q):
-                f.write(f'{t // NS}.{t % NS:09d} {p[0]:.10f} {p[1]:.10f} {p[2]:.10f} '
-                        f'{q[0]:.10f} {q[1]:.10f} {q[2]:.10f} {q[3]:.10f}\n')
+        write_tum(path, self.t_ns, self.p, self.q)
 
     def stats(self):
         duration = (self.t_ns[-1] - self.t_ns[0]) / NS
         return {
             'source': self.source,
             'poses': int(len(self.t_ns)),
-            'start': f'{self.t_ns[0] // NS}.{self.t_ns[0] % NS:09d}',
-            'end': f'{self.t_ns[-1] // NS}.{self.t_ns[-1] % NS:09d}',
+            'start': format_time_ns(self.t_ns[0]),
+            'end': format_time_ns(self.t_ns[-1]),
             'duration_s': round(duration, 3),
             'rate_hz': round((len(self.t_ns) - 1) / duration, 2) if duration > 0 else None,
             'length_m': round(float(np.linalg.norm(np.diff(self.p, axis=0), axis=1).sum()), 3),
@@ -147,27 +130,8 @@ class Trajectory:
         }
 
 
-def parse_time_ns(text):
-    """Exact ns from a decimal seconds string ('1625132455.999615908')."""
-    sec, _, frac = text.partition('.')
-    if sec.startswith('-') or not (sec.isdigit() and (frac.isdigit() or frac == '')):
-        raise ValueError(f'not a timestamp: {text!r}')
-    return int(sec) * NS + int((frac + '000000000')[:9])
-
-
 def trajectory_from_tum(path):
-    t, p, q = [], [], []
-    with open(path) as f:
-        for line_no, line in enumerate(f, 1):
-            line = line.strip()
-            if not line or line.startswith('#'):
-                continue
-            fields = line.replace(',', ' ').split()
-            if len(fields) != 8:
-                raise ExportError(f'{path}:{line_no}: expected 8 TUM fields, got {len(fields)}')
-            t.append(parse_time_ns(fields[0]))
-            p.append([float(v) for v in fields[1:4]])
-            q.append([float(v) for v in fields[4:8]])
+    t, p, q = read_tum(path)
     return Trajectory(t, p, q, f'file {path.name}')
 
 
@@ -245,7 +209,7 @@ def trajectory_coverage(traj, common_bag):
         return None
     with AnyReader([common_bag]) as reader:
         start, end = reader.start_time, reader.end_time
-    return {'bag_start': f'{start // NS}.{start % NS:09d}', 'bag_end': f'{end // NS}.{end % NS:09d}',
+    return {'bag_start': format_time_ns(start), 'bag_end': format_time_ns(end),
             'starts_after_bag_s': round((int(traj.t_ns[0]) - start) / NS, 3),
             'ends_before_bag_s': round((end - int(traj.t_ns[-1])) / NS, 3)}
 
@@ -739,7 +703,7 @@ def main():
     start = time.time()
     try:
         export(args)
-    except ExportError as err:
+    except (ExportError, TrajectoryError) as err:
         log(f'FAILED: {err}')
         shutil.rmtree(args.run / 'export.partial', ignore_errors=True)
         return 1

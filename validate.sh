@@ -15,7 +15,8 @@ Usage: $0 [--data-dir DIR]
 
 Checks:
   Docker  the docker command, a running daemon, and access without sudo
-  COCO    <data-dir> holds every original bag of sequences.conf as a readable ROS 1 bag
+  COCO    <data-dir> holds every original bag of sequences.conf as a readable ROS 1 bag, and
+          <data-dir>/ground_truth/gt-nc-<sequence>.csv for each sequence (Steps 5 and 6)
 
   --data-dir DIR   dataset directory (default: datasets/COCO)
 
@@ -70,6 +71,16 @@ while IFS=$'\t' read -r -u 3 seq bag; do
         fail "$seq: $path is not a ROS 1 bag (no '#ROSBAG V2.0' header)"
     else
         pass "$seq: $bag ($(du -h "$path" | cut -f1))"
+    fi
+done 3< <(seq_rows)
+while IFS=$'\t' read -r -u 3 seq _bag; do
+    gt="$DATA_DIR/ground_truth/gt-nc-$seq.csv"
+    if [ ! -f "$gt" ] || [ ! -r "$gt" ] || [ ! -s "$gt" ]; then
+        fail "$seq: missing, empty or unreadable ground truth $gt"
+    elif [ "$(head -n 1 "$gt" | tr -d '\r')" != "#sec,nsec,x,y,z,qx,qy,qz,qw" ]; then
+        fail "$seq: $gt does not start with the header '#sec,nsec,x,y,z,qx,qy,qz,qw'"
+    else
+        pass "$seq: ground truth $(basename "$gt") ($(($(wc -l < "$gt") - 1)) poses)"
     fi
 done 3< <(seq_rows)
 
