@@ -250,6 +250,13 @@ ARG COCO_LIC_REF=4ead7e423f67b3e15a86de4ee551bb7c752f2cd8
 RUN git clone https://github.com/APRIL-ZJU/Coco-LIC.git && \
     git -C Coco-LIC checkout ${COCO_LIC_REF}
 
+# LVIO benchmark patch (NOTES.md): the Livox front end keeps only points with tag & 0x30 == 0x10
+# (Avia "return 1"). Livox Mid-360 points (BUNKER) mostly carry 0x00, so accept both, as FAST-LIO does
+# for the Mid-360. The Ouster/Velodyne path (COCO) is not affected.
+RUN f=Coco-LIC/src/lidar/livox_feature_extraction.cpp && \
+    sed -i 's|((lidar_msg->points\[i\].tag \& 0x30) == 0x10) \&\&|(((lidar_msg->points[i].tag \& 0x30) == 0x10) \|\| ((lidar_msg->points[i].tag \& 0x30) == 0x00)) \&\& /* LVIO benchmark: Mid-360 */|' "$f" && \
+    grep -q 'LVIO benchmark: Mid-360' "$f"
+
 
 # ============================================================
 # Install Coco-LIC ROS dependencies

@@ -19,3 +19,11 @@ map:
   topic: /cloud_registered
   attribute: intensity
   description: sum of /cloud_registered (dense scans of the LIO subsystem)
+datasets:                          # per-dataset overrides of the keys above (merged into them)
+  BUNKER:
+    frames:
+      world: world (first Livox IMU pose)
+      body: Livox Mid-360 IMU
+    lidar_extrinsic:               # LVIO_LIDAR_OFFSET_TO_IMU in config/bunker/r3live.launch
+      rotation: identity
+      translation: [-0.011, -0.02329, 0.04412]

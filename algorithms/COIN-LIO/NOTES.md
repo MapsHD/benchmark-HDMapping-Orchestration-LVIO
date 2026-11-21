@@ -65,3 +65,9 @@ should apply unchanged.
 - Built as `coin-lio_noetic` by Step 2. Verified on the 30 s stairs extract: 297 `/Odometry` + 297 `/cloud_registered`.
 - Runs as root in `/root/catkin_ws`. The session `chown`s the outputs to the host user.
 - `git clone mw-COIN-LIO` follows HEAD (analysed at `76729cc`). Rebuild with `--no-cache` to update.
+
+## BUNKER (Bunker DVI reg-1)
+
+Not supported (`datasets` column of algorithms.conf: `COCO`). COIN-LIO projects the organized Ouster
+scan into intensity images (`beam_altitude_angles`, `u_shift`); the Livox Mid-360's non-repetitive scan
+has no such structure.

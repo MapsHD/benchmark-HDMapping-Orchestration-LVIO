@@ -149,18 +149,19 @@ RUN git clone https://github.com/mwlasiuk/mw-r3live.git
 
 
 # ============================================================
-# LVIO benchmark patch: LiDAR -> IMU offset for the Ouster
+# LVIO benchmark patches (lvio/patch_r3live.py, see NOTES.md)
 #
-# r3live has no LiDAR-IMU rotation, only this compile-time
-# translation (shipped value: Livox Avia). The benchmark uses
-# the Ouster internal IMU (axes = os_sensor axes), so set the
-# os_sensor origin in the os_imu frame (Ouster metadata
-# imu_to_sensor_transform). See NOTES.md.
+# 1. Lidar_offset_to_IMU, a compile-time constant upstream, is
+#    read from LVIO_LIDAR_OFFSET_TO_IMU (set by each dataset's
+#    launch file; default: the Ouster value used for COCO).
+# 2. The Livox front end's "x > 0.7 m" filter (forward-looking
+#    Avia) becomes a range check, for the 360 deg Mid-360.
 # ============================================================
 
-RUN f=${CATKIN_WS}/src/mw-r3live/r3live/src/loam/include/common_lib.h && \
-    sed -i 's|^static const Eigen::Vector3d Lidar_offset_to_IMU(.*|static const Eigen::Vector3d Lidar_offset_to_IMU(-0.006253, 0.011775, -0.007645); // Ouster os_sensor in os_imu (LVIO benchmark)|' "$f" && \
-    grep -q '^static const Eigen::Vector3d Lidar_offset_to_IMU(-0.006253, 0.011775, -0.007645);' "$f"
+COPY lvio/patch_r3live.py /tmp/patch_r3live.py
+RUN python3 /tmp/patch_r3live.py ${CATKIN_WS}/src/mw-r3live/r3live && \
+    grep -q 'LVIO_LIDAR_OFFSET_TO_IMU' ${CATKIN_WS}/src/mw-r3live/r3live/src/loam/include/common_lib.h && \
+    grep -q 'blind \* blind' ${CATKIN_WS}/src/mw-r3live/r3live/src/loam/LiDAR_front_end.cpp
 
 
 # ============================================================

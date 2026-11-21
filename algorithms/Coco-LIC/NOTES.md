@@ -141,3 +141,32 @@ Format: TUM (`t x y z qx qy qz qw`), body = Alphasense IMU frame (z down), so th
 - Left as is: PCL 1.13.1 from source next to ROS's PCL 1.10 (`pcl_ros`). It is required by
   `find_package(PCL 1.13.0)`, but it is an ABI-mixing risk to watch at the first build.
 - Runs as root in `/root/catkin_coco`; built as `coco-lic_noetic`.
+
+## BUNKER (Bunker DVI reg-1): `config/ct_odometry_bunker.yaml` + `config/bunker/`
+
+Sensors are the same for every algorithm: the Livox Mid-360 (`/lvio/livox/lidar`, the
+`livox_ros_driver/CustomMsg` copy, or `/lvio/points_xyzirt`), its built-in IMU (`/livox/imu`, 200 Hz,
+acceleration in g) and the D455F colour camera undistorted by Step 1 (`/lvio/d455_rect`, 640 × 480,
+fx 381.93 fy 381.16 cx 325.59 cy 239.48, no distortion, 15 Hz).
+
+The extrinsics come from `steps/1_prepare_data/bunker_calibration.yaml`:
+- **Livox IMU in the LiDAR:** (11.0, 23.29, −44.12) mm, axes aligned (Mid-360 manual);
+- **colour camera in the LiDAR:** estimated by registering D455F depth to the FARO map (notes/scripts/bunker_d455_extrinsic.py);
+- **camera time offset:** −0.03 s (camera stamp − 0.03 s = LiDAR time).
+
+Not run yet (2026-11-21).
+
+- **Image patch** (Dockerfile): `livox_feature_extraction.cpp` kept only `tag & 0x30 == 0x10` (Avia
+  "return 1"). Mid-360 points mostly carry 0x00 (measured on reg-1: ~95 %), so both are accepted, as
+  FAST-LIO does for the Mid-360.
+- `lidar.yaml`:
+  - `/lvio/livox/lidar`, `is_livox: true`. Coco-LIC reads the bag itself and instantiates
+    `livox_ros_driver::CustomMsg`, which is why Step 1 writes that type.
+  - Extrinsics = LiDAR in the Livox IMU.
+  - The `Livox:` block comes from Coco-LIC's `config/fastlivo2/lidar.yaml`, with `n_scan: 4`,
+    `blind: 0.5` and `min_distance: 0.5`.
+- `imu.yaml`: `/livox/imu`, `if_normalized: true` (acceleration in g).
+- `camera.yaml`: `/lvio/d455_rect`, rectified intrinsics, `CameraExtrinsics` = T_imu_camera,
+  `img_time_offset: −0.03`.
+- Step 4 rebuilds the map from `/lvio/points_xyzirt` with `lidar0.Extrinsics` and the `Livox`
+  range limits (`export.yaml`, `datasets: BUNKER`).

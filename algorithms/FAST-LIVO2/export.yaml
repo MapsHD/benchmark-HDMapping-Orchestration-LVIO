@@ -17,3 +17,11 @@ map:
   topic: /cloud_registered
   attribute: rgb
   description: sum of the coloured /cloud_registered clouds (only points seen by cam0)
+datasets:                          # per-dataset overrides of the keys above (merged into them)
+  BUNKER:
+    frames:
+      world: camera_init (first Livox IMU pose)
+      body: Livox Mid-360 IMU
+    lidar_extrinsic:
+      rotation: {file: config/bunker/fast_livo2.yaml, key: extrin_calib.extrinsic_R}
+      translation: {file: config/bunker/fast_livo2.yaml, key: extrin_calib.extrinsic_T}

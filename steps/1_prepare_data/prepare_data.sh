@@ -7,7 +7,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 source "$SCRIPT_DIR/../../algos_lib.sh"
 
 IMAGE_NAME="lvio-prepare"
-DATA_DIR="$LVIO_ROOT/datasets/COCO"
+DATA_DIR="$LVIO_DATASETS_DIR"
 OUTPUT_DIR=""
 DURATION=""
 FORCE=0
@@ -17,11 +17,12 @@ usage() {
     cat <<EOF
 Usage: $0 [--data-dir DIR] [--output-dir DIR] [--duration SECONDS] [--force] [--no-docker]
 
-Converts each sequence of sequences.conf into its common ROS 1 bag (uncompressed):
-  <data-dir>/<bag>  ->  <output-dir>/<sequence>.bag
+Converts each sequence of sequences.conf into its common ROS 1 bag (uncompressed), with the
+recipe and calibration of its dataset (steps/1_prepare_data/<dataset>_calibration.yaml):
+  <data-dir>/<dataset>/<bag>  ->  <output-dir>/<sequence>.bag
 
-  --data-dir DIR      dataset directory with the original bags   (default: datasets/COCO)
-  --output-dir DIR    where common bags are written              (default: <data-dir>/common-ros1)
+  --data-dir DIR      folder holding the dataset folders          (default: datasets)
+  --output-dir DIR    where common bags are written       (default: <data-dir>/<dataset>/common-ros1)
   --duration SECONDS  convert only the first SECONDS of each bag (quick tests)
   --force             replace existing common bags (default: skip them)
   --no-docker         run the converter with the local python3 instead of the
@@ -46,8 +47,7 @@ done
 check_only_sequences
 
 DATA_DIR="$(realpath "$DATA_DIR")"
-OUTPUT_DIR="$(realpath -m "${OUTPUT_DIR:-$DATA_DIR/common-ros1}")"
-mkdir -p "$OUTPUT_DIR"
+[ -n "$OUTPUT_DIR" ] && OUTPUT_DIR="$(realpath -m "$OUTPUT_DIR")"
 
 EXTRA_ARGS=()
 [ -n "$DURATION" ] && EXTRA_ARGS+=(--duration "$DURATION")
@@ -58,9 +58,13 @@ if [ "$USE_DOCKER" -eq 1 ]; then
 fi
 
 failed=()
-while IFS=$'\t' read -r -u 3 seq bag; do
-    src="$DATA_DIR/$bag"
-    dst="$OUTPUT_DIR/$seq.bag"
+while IFS=$'\t' read -r -u 3 seq dataset bag; do
+    data="$DATA_DIR/$dataset"
+    out="${OUTPUT_DIR:-$data/common-ros1}"
+    calib="$(basename "$(dataset_calibration "$dataset")")"
+    src="$data/$bag"
+    dst="$out/$seq.bag"
+    mkdir -p "$out"
     echo "==========================================="
     echo "Sequence $seq: $src -> $dst"
     if [ ! -f "$src" ]; then
@@ -77,12 +81,12 @@ while IFS=$'\t' read -r -u 3 seq bag; do
 
     if [ "$USE_DOCKER" -eq 1 ]; then
         cmd=(docker run --rm --user "$(id -u):$(id -g)"
-             -v "$DATA_DIR":/data:ro -v "$OUTPUT_DIR":/out -v "$SCRIPT_DIR":/app:ro
+             -v "$data":/data:ro -v "$out":/out -v "$SCRIPT_DIR":/app:ro
              "$IMAGE_NAME" python3 /app/make_common_bag.py
-             "/data/$bag" "/out/$seq.bag" --calib /app/coco_calibration.yaml)
+             "/data/$bag" "/out/$seq.bag" --dataset "$dataset" --calib "/app/$calib")
     else
         cmd=("${PYTHON:-python3}" "$SCRIPT_DIR/make_common_bag.py"
-             "$src" "$dst" --calib "$SCRIPT_DIR/coco_calibration.yaml")
+             "$src" "$dst" --dataset "$dataset" --calib "$SCRIPT_DIR/$calib")
     fi
     if ! "${cmd[@]}" "${EXTRA_ARGS[@]}"; then
         echo "ERROR: conversion of $seq failed" >&2
@@ -95,4 +99,4 @@ if [ ${#failed[@]} -gt 0 ]; then
     echo "FAILED: ${failed[*]}" >&2
     exit 1
 fi
-echo "DONE. Common bags in $OUTPUT_DIR"
+echo "DONE. Common bags in ${OUTPUT_DIR:-$DATA_DIR/<dataset>/common-ros1}"

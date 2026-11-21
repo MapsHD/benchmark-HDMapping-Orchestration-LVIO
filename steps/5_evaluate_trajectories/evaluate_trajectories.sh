@@ -7,9 +7,9 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 source "$SCRIPT_DIR/../../algos_lib.sh"
 
 IMAGE_NAME="lvio-eval"   # Python + evo, built from this folder
-DATA_DIR="$LVIO_ROOT/datasets/COCO"
+DATA_DIR="$LVIO_DATASETS_DIR"
 RESULTS_DIR="$LVIO_ROOT/results"
-CALIBRATION="$LVIO_ROOT/steps/1_prepare_data/coco_calibration.yaml"
+CALIBRATION_DIR="$LVIO_ROOT/steps/1_prepare_data"   # <dataset>_calibration.yaml: ground truth, base frame
 MAX_GAP="0.5"
 RPE_DELTA="10"
 
@@ -17,13 +17,13 @@ usage() {
     cat <<EOF
 Usage: $0 [--results-dir DIR] [--data-dir DIR] [--max-gap SECONDS] [--rpe-delta METERS]
 
-Evaluates each exported trajectory (Step 4) against <data-dir>/ground_truth/gt-nc-<sequence>.csv:
-converted to the ground-truth frame, resampled at the ground-truth stamps, then evo APE (after
-SE(3) alignment) and RPE. Writes results/<sequence>/evaluation/trajectories/ and the summary
+Evaluates each exported trajectory (Step 4) against the ground truth of its dataset (ground_truth in
+steps/1_prepare_data/<dataset>_calibration.yaml): converted to the ground-truth frame, resampled at
+the ground-truth stamps, then evo APE (after SE(3) alignment) and RPE. Writes results/<sequence>/evaluation/trajectories/ and the summary
 results/evaluation/trajectory_summary.{csv,md,tex}.
 
   --results-dir DIR    results of Steps 3 and 4                     (default: results)
-  --data-dir DIR       dataset directory (ground_truth/ inside)     (default: datasets/COCO)
+  --data-dir DIR       folder holding the dataset folders           (default: datasets)
   --max-gap SECONDS    longest own gap a trajectory is interpolated across (default: 0.5)
   --rpe-delta METERS   RPE segment length along the ground truth    (default: 10)
 
@@ -54,39 +54,40 @@ check_only_algos
 check_only_sequences
 
 RESULTS_DIR="$(realpath -m "$RESULTS_DIR")"
-GT_DIR="$(realpath -m "$DATA_DIR/ground_truth")"
+DATA_DIR="$(realpath -m "$DATA_DIR")"
 if [ ! -d "$RESULTS_DIR" ]; then
     echo "ERROR: no results directory $RESULTS_DIR (run Steps 3 and 4)" >&2; exit 1
 fi
-if [ ! -d "$GT_DIR" ]; then
-    echo "ERROR: no ground truth directory $GT_DIR (see datasets/README.md)" >&2; exit 1
+if [ ! -d "$DATA_DIR" ]; then
+    echo "ERROR: no datasets directory $DATA_DIR (see datasets/README.md)" >&2; exit 1
 fi
 
-# Every sequence and algorithm in conf order (for the summary), and the selected ones.
-mapfile -t ALL_SEQS < <(seq_ids)
+# Every sequence (id=DATASET) and algorithm (id=dir=DATASETS) in conf order (for the summary), and the selected ones.
+ALL_SEQS=()
+while IFS=$'\t' read -r seq dataset _bag; do ALL_SEQS+=("$seq=$dataset"); done < <(ONLY_SEQUENCES='' seq_rows)
 mapfile -t SEL_SEQS < <(seq_rows | cut -f1)
 ALL_ALGOS=()
-while IFS=$'\t' read -r _distro dir id _input; do ALL_ALGOS+=("$id=$dir"); done < <(ONLY_ALGOS='' algo_rows)
+while IFS=$'\t' read -r _distro dir id _input datasets; do ALL_ALGOS+=("$id=$dir=$datasets"); done < <(ONLY_ALGOS='' algo_rows)
 mapfile -t SEL_ALGOS < <(algo_rows | cut -f3)
-for seq in "${SEL_SEQS[@]}"; do
-    if [ ! -f "$GT_DIR/gt-nc-$seq.csv" ]; then
-        echo "ERROR: missing ground truth $GT_DIR/gt-nc-$seq.csv" >&2; exit 1
+while IFS=$'\t' read -r seq dataset _bag; do
+    if [ ! -f "$(dataset_calibration "$dataset")" ]; then
+        echo "ERROR: $seq: missing $(dataset_calibration "$dataset")" >&2; exit 1
     fi
-done
+done < <(seq_rows)
 
 echo "Building helper image '$IMAGE_NAME'..."
 docker build -q -t "$IMAGE_NAME" "$SCRIPT_DIR" >/dev/null || exit 1
 
 docker run --rm --init --user "$(id -u):$(id -g)" \
     -v "$RESULTS_DIR":/results \
-    -v "$GT_DIR":/gt:ro \
+    -v "$DATA_DIR":/datasets:ro \
     -v "$LVIO_ROOT/algorithms":/algorithms:ro \
-    -v "$CALIBRATION":/calibration/coco_calibration.yaml:ro \
+    -v "$CALIBRATION_DIR":/calibration:ro \
     -v "$SCRIPT_DIR":/app:ro \
     -v "$LVIO_ROOT/common/lvio_py":/lvio_py:ro -e PYTHONPATH=/lvio_py \
     "$IMAGE_NAME" python3 /app/evaluate_trajectories.py \
-        --results /results --ground-truth /gt --algorithms /algorithms \
-        --calibration /calibration/coco_calibration.yaml \
+        --results /results --datasets /datasets --algorithms /algorithms \
+        --calibration-dir /calibration \
         --sequences "${ALL_SEQS[@]}" --algos "${ALL_ALGOS[@]}" \
         --select-sequences "${SEL_SEQS[@]}" --select-algos "${SEL_ALGOS[@]}" \
         --max-gap "$MAX_GAP" --rpe-delta "$RPE_DELTA"

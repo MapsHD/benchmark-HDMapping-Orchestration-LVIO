@@ -9,6 +9,7 @@
 LVIO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ALGOS_CONF="${ALGOS_CONF:-$LVIO_ROOT/algorithms.conf}"
 SEQUENCES_CONF="${SEQUENCES_CONF:-$LVIO_ROOT/sequences.conf}"
+LVIO_DATASETS_DIR="${LVIO_DATASETS_DIR:-$LVIO_ROOT/datasets}"   # datasets/<dataset>/ per sequences.conf
 
 for _conf in "$ALGOS_CONF" "$SEQUENCES_CONF"; do
     if [ ! -f "$_conf" ]; then
@@ -35,13 +36,13 @@ _conf_rows() {
     ' "$1"
 }
 
-# algo_rows: "distro<TAB>dir<TAB>id<TAB>input" per algorithm, honouring ONLY_ALGOS.
+# algo_rows: "distro<TAB>dir<TAB>id<TAB>input<TAB>datasets" per algorithm, honouring ONLY_ALGOS.
 algo_rows() { _conf_rows "$ALGOS_CONF" "${ONLY_ALGOS:-}" 3; }
 
 # algo_ids: every algorithm id, ignoring ONLY_ALGOS.
 algo_ids() { _conf_rows "$ALGOS_CONF" "" 3 | cut -f3; }
 
-# seq_rows: "id<TAB>bag" per sequence, honouring ONLY_SEQUENCES.
+# seq_rows: "id<TAB>dataset<TAB>bag" per sequence, honouring ONLY_SEQUENCES.
 seq_rows() { _conf_rows "$SEQUENCES_CONF" "${ONLY_SEQUENCES:-}" 1; }
 
 # seq_ids: every sequence id, ignoring ONLY_SEQUENCES.
@@ -60,6 +61,17 @@ _check_only() {
         exit 1
     fi
     echo "$1 set: restricting to $value"
+}
+
+# algo_supports <datasets-column> <dataset>: true if the algorithm runs on that dataset.
+algo_supports() { [[ ",$1," == *",$2,"* ]]; }
+
+# seq_dataset <sequence>: the dataset of a sequence (ignoring ONLY_SEQUENCES).
+seq_dataset() { _conf_rows "$SEQUENCES_CONF" "" 1 | awk -F'\t' -v s="$1" '$1 == s { print $2; exit }'; }
+
+# dataset_calibration <dataset>: its calibration / ground-truth description file.
+dataset_calibration() {
+    printf '%s/steps/1_prepare_data/%s_calibration.yaml\n' "$LVIO_ROOT" "$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')"
 }
 
 # Fail early on a misspelled name instead of silently running nothing.

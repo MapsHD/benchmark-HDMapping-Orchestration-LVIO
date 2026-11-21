@@ -140,3 +140,31 @@ Verified on the 30 s stairs extract: 149 odometry/path/cloud messages recorded, 
 - Runs as root in `/root/catkin_ws`; built as `lvi-sam_melodic` (`algorithms.conf` distro column).
   `mw-LVI-SAM` (analysed at `0d822f6`) follows HEAD.
 - 18.04/Melodic and the borglab GTSAM PPA are EOL but still build (verified). This is the most fragile image.
+
+## BUNKER (Bunker DVI reg-1): `config/bunker/`, experimental
+
+Sensors are the same for every algorithm: the Livox Mid-360 (`/lvio/livox/lidar`, the
+`livox_ros_driver/CustomMsg` copy, or `/lvio/points_xyzirt`), its built-in IMU (`/livox/imu`, 200 Hz,
+acceleration in g) and the D455F colour camera undistorted by Step 1 (`/lvio/d455_rect`, 640 × 480,
+fx 381.93 fy 381.16 cx 325.59 cy 239.48, no distortion, 15 Hz).
+
+The extrinsics come from `steps/1_prepare_data/bunker_calibration.yaml`:
+- **Livox IMU in the LiDAR:** (11.0, 23.29, −44.12) mm, axes aligned (Mid-360 manual);
+- **colour camera in the LiDAR:** estimated by registering D455F depth to the FARO map (notes/scripts/bunker_d455_extrinsic.py);
+- **camera time offset:** −0.03 s (camera stamp − 0.03 s = LiDAR time).
+
+Not run yet (2026-11-21).
+
+- **LiDAR:** `/lvio/points_xyzirt` (ring = Livox line 0–3, time from scan start), with `N_SCAN: 4`,
+  `Horizon_SCAN: 6000` and `edgeFeatureMinValidNum: 1`, as the LIO benchmark's LIO-SAM Mid-360 config.
+  - LVI-SAM's image projection is the older LIO-SAM one: columns come from the azimuth, with no
+    `sensor: livox` sequential columns. The non-repetitive scan therefore gives a sparse 4 × 6000
+    range image, and the feature quality is uncertain. That is why this is marked experimental.
+- **IMU:** `lvio_imu_virtual_frame.py`.
+  - It rotates the Livox IMU (axes = LiDAR axes) into V with `R_V_imu = diag(−1, 1, −1)`.
+  - It scales the acceleration by `acc_scale: 9.80665` (new parameter, default 1; `imuGravity: 9.80665`).
+  - Then madgwick, as for COCO.
+- **Extrinsics:** `extrinsicTrans` = Livox IMU origin in the LiDAR (0.011, 0.02329, −0.04412).
+- **Camera:** `PINHOLE` with the rectified intrinsics.
+  - Extrinsics against V: `T_V_cam`, `lidar_to_cam_*` from the estimated T_lidar_camera.
+  - `td: −0.03`, `freq: 15`.

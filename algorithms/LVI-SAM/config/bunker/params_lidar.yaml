@@ -1,0 +1,79 @@
+# LVI-SAM lidar odometry on BUNKER (Bunker DVI reg-1). Values: ../../NOTES.md (BUNKER section).
+# Base: ../params_lidar.yaml (COCO); differences: sensor settings, extrinsicTrans, imuGravity, edgeFeatureMinValidNum.
+# LVI-SAM lidar odometry on COCO (Newer College Multi-Cam 2021). Values: ../NOTES.md.
+# Base: config/params_lidar.yaml of LVI-SAM. Extrinsics are against the virtual IMU frame V.
+PROJECT_NAME: "lvi_sam"
+
+lvi_sam:
+
+  # Topics
+  pointCloudTopic: "/lvio/points_xyzirt"      # Ouster in Velodyne layout (ring u16, time f32)
+  imuTopic: "/lvio/imu_v/data"                # Alphasense IMU in frame V + madgwick orientation
+
+  # Heading initialization
+  useImuHeadingInitialization: false          # no magnetometer: madgwick yaw is arbitrary
+
+  # Export settings: map saved on shutdown to $HOME + savePCDDirectory.
+  # run.sh sets HOME=/lvio/out (the output dir). The code deletes and recreates this folder.
+  savePCD: true
+  savePCDDirectory: "/lvi_sam_map/"
+
+  # Sensor settings
+  N_SCAN: 4                                   # Livox Mid-360: 4 lines (ring = Livox line, Step 1)
+  Horizon_SCAN: 6000                          # >= points per line per scan (~5000), as the LIO benchmark's LIO-SAM Mid-360 config
+  timeField: "time"                           # field of /lvio/points_xyzirt
+  downsampleRate: 1                           # raise to 2 if LVI-SAM cannot keep up
+
+  # IMU settings (LVI-SAM defaults; tune for the BMI085 if needed)
+  imuAccNoise: 3.9939570888238808e-03
+  imuGyrNoise: 1.5636343949698187e-03
+  imuAccBiasN: 6.4356659353532566e-05
+  imuGyrBiasN: 3.5640318696367613e-05
+  imuGravity: 9.80665                         # the adapter scales the Livox g units by 9.80665
+
+  # Extrinsics (virtual IMU V, LIO-SAM conventions: acc_lidar = extRot * acc_V, q_lidar = q_V * extQRPY)
+  extrinsicTrans: [0.011, 0.02329, -0.04412]          # Livox IMU (V) origin in the LiDAR frame (bunker_calibration.yaml)
+  extrinsicRot: [-1, 0, 0,
+                  0, 1, 0,
+                  0, 0, -1]
+  extrinsicRPY: [-1, 0, 0,
+                  0, 1, 0,
+                  0, 0, -1]
+
+  # LOAM feature threshold
+  edgeThreshold: 1.0
+  surfThreshold: 0.1
+  edgeFeatureMinValidNum: 1                   # sparse 4-line scans: as the LIO benchmark's LIO-SAM Mid-360 config
+  surfFeatureMinValidNum: 100
+
+  # voxel filter paprams
+  odometrySurfLeafSize: 0.4
+  mappingCornerLeafSize: 0.2
+  mappingSurfLeafSize: 0.4
+
+  # robot motion constraint (in case you are using a 2D robot)
+  z_tollerance: 1000
+  rotation_tollerance: 1000
+
+  # CPU Params
+  numberOfCores: 4
+  mappingProcessInterval: 0.15
+
+  # Surrounding map
+  surroundingkeyframeAddingDistThreshold: 1.0
+  surroundingkeyframeAddingAngleThreshold: 0.2
+  surroundingKeyframeDensity: 2.0
+  surroundingKeyframeSearchRadius: 50.0
+
+  # Loop closure
+  loopClosureEnableFlag: true
+  surroundingKeyframeSize: 25
+  historyKeyframeSearchRadius: 20.0
+  historyKeyframeSearchTimeDiff: 30.0
+  historyKeyframeSearchNum: 25
+  historyKeyframeFitnessScore: 0.3
+
+  # Visualization
+  globalMapVisualizationSearchRadius: 1000.0
+  globalMapVisualizationPoseDensity: 10.0
+  globalMapVisualizationLeafSize: 1.0

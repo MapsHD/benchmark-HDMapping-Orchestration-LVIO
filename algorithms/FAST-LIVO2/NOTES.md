@@ -106,3 +106,30 @@ source directory fixed at compile time (`CMakeLists.txt:40`).
 - Runs as root in `/root/catkin_ws`; built as `fast-livo2_noetic`. `mw-FAST-LIVO2` (analysed at `0d2c034`)
   and `rpg_vikit` (`6c886c8`) follow HEAD.
 - Sophus `a621ff` + `so2.cpp` patch: kept (required by FAST-LIVO2).
+
+## BUNKER (Bunker DVI reg-1): `config/bunker/`
+
+Sensors are the same for every algorithm: the Livox Mid-360 (`/lvio/livox/lidar`, the
+`livox_ros_driver/CustomMsg` copy, or `/lvio/points_xyzirt`), its built-in IMU (`/livox/imu`, 200 Hz,
+acceleration in g) and the D455F colour camera undistorted by Step 1 (`/lvio/d455_rect`, 640 × 480,
+fx 381.93 fy 381.16 cx 325.59 cy 239.48, no distortion, 15 Hz).
+
+The extrinsics come from `steps/1_prepare_data/bunker_calibration.yaml`:
+- **Livox IMU in the LiDAR:** (11.0, 23.29, −44.12) mm, axes aligned (Mid-360 manual);
+- **colour camera in the LiDAR:** estimated by registering D455F depth to the FARO map (notes/scripts/bunker_d455_extrinsic.py);
+- **camera time offset:** −0.03 s (camera stamp − 0.03 s = LiDAR time).
+
+Not run yet (2026-11-21).
+
+- `fast_livo2.yaml`:
+  - LiDAR: `lidar_type: 1` (Livox CustomMsg), `scan_line: 4`, `blind: 0.5`, `point_filter_num: 1`.
+    The Avia handler's `tag & 0x30 == 0x10` filter applies only with feature extraction, which is
+    off (`preprocess.cpp:120` vs `:168`), so Mid-360 points (tag mostly 0x00) are kept.
+  - IMU: `gyr_cov: 0.3` as `avia.yaml` (Livox IMU); the g units are handled by FAST-LIVO2's
+    mean-acceleration scaling.
+  - Extrinsics: `extrinsic_T` = LiDAR in the IMU (−0.011, −0.02329, 0.04412), `extrinsic_R` = I;
+    `Rcl/Pcl` = T_cam_lidar.
+  - `img_time_offset: −0.03`.
+  - The rest (vio, lio, evo native trajectory) is as `coco.yaml`.
+- `camera.yaml`: `Pinhole`, rectified intrinsics, zero distortion.
+- `fast_livo2.launch`: `topic_tools drop 1 3` (15 → 10 Hz), then `republish` compressed → raw.

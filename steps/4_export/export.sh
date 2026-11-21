@@ -7,7 +7,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 source "$SCRIPT_DIR/../../algos_lib.sh"
 
 IMAGE_NAME="lvio-prepare"   # Python + rosbags + numpy + OpenCV, built from steps/1_prepare_data/
-DATA_DIR="$LVIO_ROOT/datasets/COCO"
+DATA_DIR="$LVIO_DATASETS_DIR"
 COMMON_DIR=""
 RESULTS_DIR="$LVIO_ROOT/results"
 VOXEL_SIZE="0.05"
@@ -23,8 +23,8 @@ Exports each finished run as described by algorithms/<dir>/export.yaml:
       <id>_trajectory_tum.txt, <id>_map.ply, <id>_preview.png, export.json
 
   --results-dir DIR    results of Step 3                          (default: results)
-  --data-dir DIR       dataset directory                          (default: datasets/COCO)
-  --common-dir DIR     common ROS 1 bags (maps rebuilt from scans) (default: <data-dir>/common-ros1)
+  --data-dir DIR       folder holding the dataset folders         (default: datasets)
+  --common-dir DIR     common ROS 1 bags (maps rebuilt from scans) (default: <data-dir>/<dataset>/common-ros1)
   --voxel-size METERS  map voxel size, 0 = keep every point       (default: 0.05)
   --jobs N             exports run at the same time               (default: 1)
   --force              redo existing exports                      (default: skip them)
@@ -58,7 +58,7 @@ check_only_algos
 check_only_sequences
 
 DATA_DIR="$(realpath -m "$DATA_DIR")"
-COMMON_DIR="$(realpath -m "${COMMON_DIR:-$DATA_DIR/common-ros1}")"
+[ -n "$COMMON_DIR" ] && COMMON_DIR="$(realpath -m "$COMMON_DIR")"
 RESULTS_DIR="$(realpath -m "$RESULTS_DIR")"
 if [ ! -d "$RESULTS_DIR" ]; then
     echo "ERROR: no results directory $RESULTS_DIR (run Step 3)" >&2; exit 1
@@ -80,20 +80,21 @@ record() {  # record <sequence> <id> <status> <seconds> <output>
     echo "$(date -Iseconds),$1,$2,$3,$4,$5" >> "$SUMMARY"
 }
 
-# export_one <sequence> <dir> <id>: one export in the helper image; output in <run>/logs/export.log
+# export_one <sequence> <dataset> <dir> <id>: one export in the helper image; output in <run>/logs/export.log
 export_one() {
-    local seq="$1" dir="$2" id="$3"
+    local seq="$1" dataset="$2" dir="$3" id="$4"
     local run="$RESULTS_DIR/$seq/$id" start=$SECONDS rc status
+    local common="${COMMON_DIR:-$DATA_DIR/$dataset/common-ros1}"
     local cmd=(docker run --rm --init --user "$(id -u):$(id -g)"
                -v "$run":/lvio/run
                -v "$LVIO_ROOT/algorithms/$dir/export.yaml":/lvio/export.yaml:ro
                -v "$SCRIPT_DIR":/app:ro
                -v "$LVIO_ROOT/common/lvio_py":/lvio_py:ro -e PYTHONPATH=/lvio_py)
-    if [ -f "$COMMON_DIR/$seq.bag" ]; then
-        cmd+=(-v "$COMMON_DIR/$seq.bag":/lvio/common.bag:ro)
+    if [ -f "$common/$seq.bag" ]; then
+        cmd+=(-v "$common/$seq.bag":/lvio/common.bag:ro)
     fi
     cmd+=("$IMAGE_NAME" python3 /app/export_results.py --run /lvio/run --spec /lvio/export.yaml
-          --id "$id" --sequence "$seq" --common-bag /lvio/common.bag --voxel-size "$VOXEL_SIZE")
+          --id "$id" --sequence "$seq" --dataset "$dataset" --common-bag /lvio/common.bag --voxel-size "$VOXEL_SIZE")
     mkdir -p "$run/logs"
     if [ "$JOBS" -eq 1 ]; then
         "${cmd[@]}" 2>&1 | tee "$run/logs/export.log"
@@ -127,8 +128,9 @@ reap() {
     unset "PIDS[$pid]"
 }
 
-while IFS=$'\t' read -r -u 4 seq _seq_bag; do
-    while IFS=$'\t' read -r -u 3 _distro dir id _input; do
+while IFS=$'\t' read -r -u 4 seq dataset _seq_bag; do
+    while IFS=$'\t' read -r -u 3 _distro dir id _input datasets; do
+        algo_supports "$datasets" "$dataset" || continue   # not run on this dataset (algorithms.conf)
         [ "$INTERRUPTED" -eq 1 ] && break
         run="$RESULTS_DIR/$seq/$id"
         spec="$LVIO_ROOT/algorithms/$dir/export.yaml"
@@ -151,7 +153,7 @@ while IFS=$'\t' read -r -u 4 seq _seq_bag; do
         [ "$INTERRUPTED" -eq 1 ] && break
         echo "==========================================="
         echo "Exporting $seq/$id"
-        export_one "$seq" "$dir" "$id" &
+        export_one "$seq" "$dataset" "$dir" "$id" &
         PIDS[$!]="$seq/$id"
     done 3< <(algo_rows)
     [ "$INTERRUPTED" -eq 1 ] && break

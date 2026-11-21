@@ -48,6 +48,7 @@ import yaml
 from rosbags.highlevel import AnyReader
 
 # common/lvio_py, on PYTHONPATH (export.sh mounts it)
+from lvio_results import spec_for_dataset
 from lvio_trajectory import NS, TrajectoryError, format_time_ns, read_tum, resolve, write_tum
 
 
@@ -140,9 +141,11 @@ def trajectory_from_odometry(bag, topic, stamp_from=None):
 
     stamp_from is for algorithms that stamp odometry with the publish time but publish a message with the
     measurement time in the same iteration (stamp_from first, then the odometry). The pairing is checked
-    with the bag record times: the n-th odometry must arrive after the n-th and before the (n+1)-th
-    stamp_from message. Unlike a time-gap limit, this holds however far the algorithm falls behind
-    real time, and a pairing shifted by one message in either direction breaks it.
+    with the bag record times: at least 98 % of the odometry messages must arrive after their partner and
+    before the partner's successor, and the paired messages must be much closer in record time (median)
+    than the pairs shifted by one message, which are a whole iteration apart. Both hold however far the
+    algorithm falls behind real time, and the gap test also works when both messages arrive within
+    milliseconds (small clouds, e.g. a Livox Mid-360).
     """
     t, p, q, pub, rec, rec_from = [], [], [], [], [], []
     with AnyReader([bag]) as reader:
@@ -170,17 +173,26 @@ def trajectory_from_odometry(bag, topic, stamp_from=None):
         tol = 2_000_000  # 2 ms
         return float(((odom >= other - tol) & (odom <= nxt + tol)).mean())
 
+    def median_gap(odom, other):
+        return float(np.median(np.abs(odom - other))) / NS
+
+    # The pairs must be in record order, and much closer in record time than the pairs shifted by one
+    # message (which are a whole iteration apart). The ordering alone cannot tell a shift apart when both
+    # messages arrive within the tolerance (small clouds, e.g. a Livox Mid-360: median gap 0 ms).
     paired = interleaved(rec, rec_from)
-    shifted = max(interleaved(rec[:-1], rec_from[1:]), interleaved(rec[1:], rec_from[:-1]))
+    gap = median_gap(rec, rec_from)
+    gap_shifted = min(median_gap(rec[:-1], rec_from[1:]), median_gap(rec[1:], rec_from[:-1]))
     lag = (np.asarray(pub, dtype=np.int64) - np.asarray(t, dtype=np.int64)) / NS
-    if paired < 0.98 or shifted > 0.5 or lag.min() < 0:
+    if paired < 0.98 or gap >= 0.5 * gap_shifted or lag.min() < 0:
         raise ExportError(f'{topic} and {stamp_from} do not pair 1:1: {paired:.1%} of the pairs are in record '
-                          f'order ({shifted:.1%} when shifted by one); publish-minus-stamp min {lag.min():.3f} s')
+                          f'order; median record gap {gap * 1000:.1f} ms paired vs {gap_shifted * 1000:.1f} ms '
+                          f'shifted by one; publish-minus-stamp min {lag.min():.3f} s')
     traj.t_ns = np.asarray(t, dtype=np.int64)
     traj.source = f'{topic} in {bag.name}, stamps from {stamp_from}'
     traj.notes.append(f'pose stamps taken from the paired {stamp_from} message ({paired:.1%} of the pairs in '
-                      f'record order, {shifted:.1%} when shifted by one); the publish-time stamps lagged by '
-                      f'median {np.median(lag):.2f} s, max {lag.max():.2f} s (processing behind real time)')
+                      f'record order; median record gap {gap * 1000:.1f} ms paired vs {gap_shifted * 1000:.1f} ms '
+                      f'shifted by one); the publish-time stamps lagged by median {np.median(lag):.2f} s, '
+                      f'max {lag.max():.2f} s (processing behind real time)')
     return traj
 
 
@@ -591,7 +603,7 @@ def write_preview(path, xyz, traj, title, max_side=1600, crop=25.0, margin=40):
 
 def export(args):
     run_dir = args.run.resolve()
-    spec = yaml.safe_load(args.spec.read_text())
+    spec = spec_for_dataset(yaml.safe_load(args.spec.read_text()), args.dataset)
     bag = run_dir / f'recorded-{args.id}.bag'
     final = run_dir / 'export'
     work = run_dir / 'export.partial'
@@ -599,7 +611,7 @@ def export(args):
         shutil.rmtree(work)
     work.mkdir()
     warnings = []
-    info = {'algorithm': args.id, 'sequence': args.sequence,
+    info = {'algorithm': args.id, 'sequence': args.sequence, 'dataset': args.dataset,
             'created': datetime.datetime.now(datetime.timezone.utc).isoformat(timespec='seconds'),
             'frames': spec.get('frames', {}), 'files': {}}
 
@@ -697,6 +709,7 @@ def main():
     parser.add_argument('--spec', type=Path, required=True, help='algorithms/<ALGO>/export.yaml')
     parser.add_argument('--id', required=True, help='algorithm id (file names)')
     parser.add_argument('--sequence', required=True, help='sequence id (metadata)')
+    parser.add_argument('--dataset', default='COCO', help="dataset of the sequence (export.yaml 'datasets:' override)")
     parser.add_argument('--common-bag', type=Path, help='common bag of the sequence (map source "reconstruct")')
     parser.add_argument('--voxel-size', type=float, default=0.05, help='map voxel in m; 0 = every point')
     args = parser.parse_args()

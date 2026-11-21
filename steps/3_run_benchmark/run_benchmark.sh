@@ -6,7 +6,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck source=../../algos_lib.sh
 source "$SCRIPT_DIR/../../algos_lib.sh"
 
-DATA_DIR="$LVIO_ROOT/datasets/COCO"
+DATA_DIR="$LVIO_DATASETS_DIR"
 COMMON_DIR=""
 OUTPUT_DIR="$LVIO_ROOT/results"
 FORCE=0
@@ -15,11 +15,12 @@ usage() {
     cat <<EOF
 Usage: $0 [--data-dir DIR] [--common-dir DIR] [--output-dir DIR] [--force] [--no-rviz] [--rate RATE]
 
-Runs algorithms/<dir>/run.sh for each (sequence, algorithm) pair:
+Runs algorithms/<dir>/run.sh (with LVIO_DATASET=<dataset>) for each (sequence, algorithm) pair whose
+dataset the algorithm supports (datasets column of algorithms.conf):
   <common-dir>/<sequence>.bag  ->  <output-dir>/<sequence>/<algorithm-id>/
 
-  --data-dir DIR    dataset directory                       (default: datasets/COCO)
-  --common-dir DIR  common ROS 1 bags from Step 1           (default: <data-dir>/common-ros1)
+  --data-dir DIR    folder holding the dataset folders      (default: datasets)
+  --common-dir DIR  common ROS 1 bags from Step 1           (default: <data-dir>/<dataset>/common-ros1)
   --output-dir DIR  results                                 (default: results)
   --force           delete and redo existing results        (default: skip them)
   --no-rviz         run without RViz (headless); by default every run shows RViz (X session needed)
@@ -50,16 +51,16 @@ export LVIO_RVIZ="${LVIO_RVIZ:-1}"   # RViz is on by default
 check_rviz_display || exit 1
 
 DATA_DIR="$(realpath -m "$DATA_DIR")"
-COMMON_DIR="$(realpath -m "${COMMON_DIR:-$DATA_DIR/common-ros1}")"
+[ -n "$COMMON_DIR" ] && COMMON_DIR="$(realpath -m "$COMMON_DIR")"
 OUTPUT_DIR="$(realpath -m "$OUTPUT_DIR")"
 mkdir -p "$OUTPUT_DIR"
 SUMMARY="$OUTPUT_DIR/run_summary.csv"
 [ -f "$SUMMARY" ] || echo "finished_at,sequence,algorithm,status,seconds,output" > "$SUMMARY"
 
-# resolve_input <kind> <sequence> <original bag>
+# resolve_input <kind> <sequence> <dataset>
 resolve_input() {
     case "$1" in
-        common-ros1) echo "$COMMON_DIR/$2.bag" ;;
+        common-ros1) echo "${COMMON_DIR:-$DATA_DIR/$3/common-ros1}/$2.bag" ;;
         *)      echo "" ;;
     esac
 }
@@ -72,19 +73,23 @@ trap 'INTERRUPTED=1' INT TERM
 
 # Tables are read on file descriptors 3 and 4, not stdin, so nothing started inside the
 # loop can consume them.
-while IFS=$'\t' read -r -u 4 seq seq_bag; do
-    while IFS=$'\t' read -r -u 3 _distro dir id input; do
+while IFS=$'\t' read -r -u 4 seq dataset _seq_bag; do
+    while IFS=$'\t' read -r -u 3 _distro dir id input datasets; do
         [ "$INTERRUPTED" -eq 1 ] && break
         run_script="$LVIO_ROOT/algorithms/$dir/run.sh"
         out="$OUTPUT_DIR/$seq/$id"
         echo "==========================================="
-        echo "Sequence $seq, algorithm $id"
+        echo "Sequence $seq ($dataset), algorithm $id"
+        if ! algo_supports "$datasets" "$dataset"; then
+            echo "Skipping: $id does not support the $dataset dataset (algorithms.conf)"
+            continue
+        fi
 
         if [ ! -x "$run_script" ]; then
             echo "Skipping: $run_script missing or not executable"
             continue
         fi
-        bag="$(resolve_input "$input" "$seq" "$seq_bag")"
+        bag="$(resolve_input "$input" "$seq" "$dataset")"
         if [ -z "$bag" ]; then
             echo "ERROR: unknown input kind '$input' for $id in algorithms.conf" >&2
             failed+=("$seq/$id"); continue
@@ -103,7 +108,7 @@ while IFS=$'\t' read -r -u 4 seq seq_bag; do
         fi
 
         start=$SECONDS
-        "$run_script" "$bag" "$out"
+        LVIO_DATASET="$dataset" "$run_script" "$bag" "$out"
         rc=$?
         if [ "$INTERRUPTED" -eq 1 ] || [ "$rc" -eq 130 ]; then
             INTERRUPTED=1

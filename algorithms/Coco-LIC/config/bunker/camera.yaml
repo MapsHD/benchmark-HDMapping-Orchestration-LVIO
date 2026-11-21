@@ -1,0 +1,22 @@
+%YAML:1.0
+image_topic: /lvio/d455_rect  # suffix "compressed" omitted: Coco-LIC reads <topic>/compressed too
+image_width: 640
+image_height: 480
+# D455F colour, rectified (steps/1_prepare_data/bunker_calibration.yaml, camera_rect), no distortion
+cam_fx: 381.93
+cam_fy: 381.16
+cam_cx: 325.59
+cam_cy: 239.48
+cam_d0: 0.0
+cam_d1: 0.0
+cam_d2: 0.0
+cam_d3: 0.0
+cam_d4: 0.0
+
+CameraExtrinsics:  # camera to imu: camera pose in the Livox IMU frame, Rot row-major
+    Trans: [0.076088, -0.066955, -0.082294]
+    Rot: [-0.011442,  0.165756,  0.986100,
+          -0.999841,  0.011577, -0.013548,
+          -0.013662, -0.986099,  0.165597]
+
+img_time_offset: -0.03  # camera to imu [s]: t_imu = t_cam - 0.03 (estimated, bunker_calibration.yaml)

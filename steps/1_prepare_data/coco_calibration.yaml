@@ -31,8 +31,12 @@ cam0_rect:
 # a free least-squares fit of the lever arm on the good quad runs gives about (-0.01, 0.00, 0.01) m,
 # and identity gives the lowest or equal APE in 15 of 18 runs. So the ground truth is treated as the
 # os_sensor (LiDAR) pose, i.e. T_base_ossensor = identity. Change it here if better information appears.
+ground_truth:                       # Step 5 / 6
+  format: nc_csv                    # '#sec,nsec,x,y,z,qx,qy,qz,qw', 10 Hz
+  file: ground_truth/gt-nc-{sequence}.csv   # relative to datasets/COCO/
+
 base_frame:
   source: data check (notes/08 and notes/scripts/base_frame_check.py); URDF candidates rejected
-  T_base_ossensor:                  # os_sensor (LiDAR) pose in the ground-truth body frame
+  T_gt_lidar:                       # os_sensor (LiDAR) pose in the ground-truth body frame
     rotation: identity
     translation: [0.0, 0.0, 0.0]

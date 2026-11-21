@@ -2,9 +2,9 @@
 # Removes everything the benchmark steps produced (see README.md, "Validate and clean"):
 #   Docker images  lvio-prepare (Steps 1 and 4), lvio-eval (Steps 5 and 6) and <id>_<distro> of every
 #                  algorithms.conf row (Step 2)
-#   Step 1         datasets/COCO/common-ros1/ (and the obsolete datasets/COCO/common/ with LZ4 bags)
+#   Step 1         datasets/<dataset>/common-ros1/ of every dataset (and the obsolete datasets/COCO/common/)
 #   Steps 3 to 6   everything in results/ except its .gitignore (runs, exports, evaluation)
-# Kept: the original bags, cam_calibration/, ground_truth/, the repository and notes/.
+# Kept: the original data (bags, calibration, ground truth, reference maps), the repository and notes/.
 # Only this benchmark's images are removed; other images and Docker's build cache are not touched.
 set -euo pipefail
 
@@ -14,7 +14,7 @@ source "$ROOT/algos_lib.sh"
 unset ONLY_ALGOS ONLY_SEQUENCES   # clean always covers every algorithm and sequence
 
 HELPER_IMAGES=("lvio-prepare" "lvio-eval")
-DATA_DIR="$LVIO_ROOT/datasets/COCO"
+DATA_DIR="$LVIO_DATASETS_DIR"
 RESULTS_DIR="$LVIO_ROOT/results"
 DRY_RUN=0
 
@@ -23,7 +23,7 @@ usage() {
 Usage: $0 [--dry-run]
 
 Removes the outputs of all steps: this benchmark's Docker images, the common bags of Step 1
-(datasets/COCO/common-ros1/) and the results of Steps 3 to 6 (results/). The original
+(datasets/<dataset>/common-ros1/) and the results of Steps 3 to 6 (results/). The original
 dataset is kept. Lists what it will remove and asks you to type CLEAN to confirm.
 
   --dry-run   only list what would be removed
@@ -63,7 +63,7 @@ in_repo() {
 }
 
 PATHS=()
-for path in "$DATA_DIR/common-ros1" "$DATA_DIR/common"; do
+for path in $(seq_rows | cut -f2 | sort -u | sed "s|^|$DATA_DIR/|; s|\$|/common-ros1|") "$DATA_DIR/COCO/common"; do
     if [ -e "$path" ] || [ -L "$path" ]; then
         PATHS+=("$path")
     fi
@@ -117,7 +117,7 @@ for path in "${PATHS[@]}"; do
         printf '  %-8s %s\n' "$(du -sh -- "$path" 2>/dev/null | cut -f1)" "${path#"$LVIO_ROOT"/}"
     fi
 done
-echo "Kept: the original bags, cam_calibration/ and ground_truth/ in datasets/COCO/, and the repository."
+echo "Kept: the original data in datasets/<dataset>/ (bags, calibration, ground truth, reference maps) and the repository."
 if [ "$DRY_RUN" -eq 1 ]; then
     echo "Dry run: nothing removed."
     exit 0

@@ -43,7 +43,8 @@ from evo.core.trajectory import PoseTrajectory3D
 # common/lvio_py, on PYTHONPATH (evaluate_trajectories.sh mounts it)
 from lvio_trajectory import (NS, TrajectoryError, coverage, format_time_ns, interpolate, normalize_quats,
                              read_gt_csv, read_tum, right_multiply, rigid_from_spec, write_tum)
-from lvio_results import missing_reason, trajectory_path
+import lvio_ground_truth
+from lvio_results import missing_reason, spec_for_dataset, trajectory_path
 
 PARTIAL = 0.99          # covered fraction below this is marked as partial in the tables
 TIME_SHIFTS = np.round(np.arange(-0.20, 0.2001, 0.01), 3)
@@ -79,13 +80,13 @@ def time_shift_sweep(t_gt, p_gt, t_est, p_est, q_est, max_gap_ns):
     return rows
 
 
-def evaluate_run(args, seq, algo, algo_dir, gt, out_dir):
+def evaluate_run(args, seq, dataset, algo, algo_dir, gt, out_dir):
     """Evaluate one run; returns the metrics document (status ok) or raises."""
     t_gt, p_gt, q_gt = gt
     run = args.results / seq / algo
     tum = trajectory_path(args.results, seq, algo)
     spec_path = args.algorithms / algo_dir / 'export.yaml'
-    spec = yaml.safe_load(spec_path.read_text())
+    spec = spec_for_dataset(yaml.safe_load(spec_path.read_text()), dataset)
     if 'lidar_extrinsic' not in spec:
         raise TrajectoryError(f'{spec_path} has no lidar_extrinsic')
     T_body_lidar = rigid_from_spec(spec['lidar_extrinsic'], run)
@@ -216,7 +217,8 @@ def plot_sequence(seq_dir, seq, gt, algos, docs):
     ax.set_ylabel('APE translation [m]')
     ax.set_title(f'{seq}: translation error over time (SE(3)-aligned)')
     ax.grid(alpha=0.3)
-    ax.legend(loc='upper left', fontsize=9)
+    if ax.get_legend_handles_labels()[0]:
+        ax.legend(loc='upper left', fontsize=9)
     fig.tight_layout()
     fig.savefig(seq_dir / 'ape_over_time.png', dpi=120)
     plt.close(fig)
@@ -249,6 +251,8 @@ def summary_row(seq, algo, d):
 
 
 def cell(row, key, fmt):
+    if row['status'] == 'n/a':
+        return 'n/a'
     if row['status'] != 'ok':
         return '–'
     value = row.get(key)
@@ -309,9 +313,10 @@ def write_summary(results, seqs, algos, max_gap, rpe_delta):
         w.writerows(rows)
 
     md = ['# Trajectory evaluation (Step 5)', '',
-          'Ground truth: Newer College multi-cam, 10 Hz, one pose per LiDAR scan. Its body frame is called `Base` '
-          'in the dataset docs; the data shows it is the LiDAR (`os_sensor`) pose '
-          '(`base_frame` in `steps/1_prepare_data/coco_calibration.yaml`).',
+          'Ground truth per dataset (`ground_truth` and `base_frame` in `steps/1_prepare_data/<dataset>_calibration.yaml`): '
+          'COCO = Newer College multi-cam, 10 Hz, one pose per LiDAR scan; its body frame is called `Base` in the '
+          'dataset docs, the data shows it is the LiDAR (`os_sensor`) pose. BUNKER = the HDMapping ground-truth '
+          'session of the LIO benchmark (~200 Hz, evaluated at 10 Hz), a LiDAR (Livox Mid-360) pose.',
           '',
           f'Every trajectory is converted to that frame with the LiDAR extrinsic its algorithm was configured with, '
           f'resampled at the ground-truth stamps (no interpolation across its own gaps > {max_gap} s) and '
@@ -333,7 +338,9 @@ def write_summary(results, seqs, algos, max_gap, rpe_delta):
             lines = lines[:2] + [ln.replace(' †', '') for ln in lines[2:]]
         md += [f'## {title}', ''] + lines + ['']
     notes = [f"- {r['sequence']} / {r['algorithm']}: {r['status']}" + (f" ({r['reason']})" if r['reason'] else '')
-             for r in rows if r['status'] != 'ok']
+             for r in rows if r['status'] not in ('ok', 'n/a')]
+    if any(r['status'] == 'n/a' for r in rows):
+        notes.append('- n/a: the algorithm does not run on that dataset (datasets column of algorithms.conf)')
     notes += [f"- {r['sequence']} / {r['algorithm']}: {r['warnings']}" for r in rows
               if r['status'] == 'ok' and r['warnings']]
     if notes:
@@ -358,40 +365,42 @@ def write_summary(results, seqs, algos, max_gap, rpe_delta):
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument('--results', type=Path, required=True)
-    parser.add_argument('--ground-truth', type=Path, required=True, help='folder with gt-nc-<sequence>.csv')
-    parser.add_argument('--gt-pattern', default='gt-nc-{sequence}.csv')
+    parser.add_argument('--datasets', type=Path, required=True, help='the datasets/ folder (ground truth inside)')
+    parser.add_argument('--calibration-dir', type=Path, required=True,
+                        help='folder with <dataset>_calibration.yaml (ground_truth, base_frame)')
     parser.add_argument('--algorithms', type=Path, required=True, help='the algorithms/ folder (export.yaml)')
-    parser.add_argument('--calibration', type=Path, required=True, help='coco_calibration.yaml (base_frame)')
-    parser.add_argument('--sequences', nargs='+', required=True, help='every sequence, in order')
-    parser.add_argument('--algos', nargs='+', required=True, help='every algorithm as id=dir, in order')
+    parser.add_argument('--sequences', nargs='+', required=True, help='every sequence as id=DATASET, in order')
+    parser.add_argument('--algos', nargs='+', required=True,
+                        help='every algorithm as id=dir=DATASET[,DATASET...], in order')
     parser.add_argument('--select-sequences', nargs='*', default=None)
     parser.add_argument('--select-algos', nargs='*', default=None)
     parser.add_argument('--max-gap', type=float, default=0.5, help='longest own gap to interpolate across [s]')
     parser.add_argument('--rpe-delta', type=float, default=10.0, help='RPE segment length along the GT [m]')
     args = parser.parse_args()
 
-    algos = [tuple(a.split('=', 1)) for a in args.algos]
-    sel_seqs = args.select_sequences or args.sequences
+    seqs = [tuple(a.split('=', 1)) for a in args.sequences]
+    algo_rows = [a.split('=', 2) for a in args.algos]
+    algos = [(a, d) for a, d, _ in algo_rows]
+    supported = {a: set(ds.split(',')) for a, _, ds in algo_rows}
+    sel_seqs = set(args.select_sequences or [s for s, _ in seqs])
     sel_algos = set(args.select_algos or [a for a, _ in algos])
-    base = yaml.safe_load(args.calibration.read_text())['base_frame']
-    T_base_lidar = rigid_from_spec(base['T_base_ossensor'], args.calibration.parent)
-    args.T_lidar_base = np.linalg.inv(T_base_lidar)
-    log(f"Base frame: os_sensor at {T_base_lidar[:3, 3].tolist()} m in Base ({base.get('source', '')})")
 
     failures = 0
-    for seq in sel_seqs:
-        gt_path = args.ground_truth / args.gt_pattern.format(sequence=seq)
+    for seq, dataset in seqs:
+        if seq not in sel_seqs:
+            continue
         seq_dir = args.results / seq / 'evaluation' / 'trajectories'
         seq_dir.mkdir(parents=True, exist_ok=True)
-        t_gt, p_gt, q_gt = read_gt_csv(gt_path)
-        # Some ground-truth rows print qw with too few digits (stairs: '0.96', '-0.3'): renormalise.
-        deviation = np.abs(np.linalg.norm(q_gt, axis=1) - 1)
-        gt = (t_gt, p_gt, normalize_quats(q_gt, tolerance=GT_QUAT_TOLERANCE))
+        g = lvio_ground_truth.load(args.datasets, dataset, seq, args.calibration_dir)
+        args.T_lidar_base = np.linalg.inv(g['T_gt_lidar'])
+        gt = (g['t'], g['p'], g['q'])
         write_tum(seq_dir / 'ground_truth_tum.txt', *gt)
-        log(f'{seq}: ground truth {len(t_gt)} poses, {(t_gt[-1] - t_gt[0]) / NS:.1f} s ({gt_path.name})')
-        if (deviation > 1e-4).any():
-            log(f'{seq}: {(deviation > 1e-4).sum()} ground-truth quaternion(s) renormalised '
-                f'(norm off by up to {deviation.max():.1e})')
+        rate = f", thinned to {g['max_rate_hz']} Hz from {g['raw_poses']}" if g['max_rate_hz'] else ''
+        log(f"{seq} ({dataset}): ground truth {len(g['t'])} poses{rate}, {(g['t'][-1] - g['t'][0]) / NS:.1f} s "
+            f"({g['file']}); LiDAR in the ground-truth frame at {g['T_gt_lidar'][:3, 3].tolist()} ({g['base_source']})")
+        if g['renormalised']:
+            log(f"{seq}: {g['renormalised']} ground-truth quaternion(s) renormalised "
+                f"(norm off by up to {g['max_deviation']:.1e})")
         for algo, algo_dir in algos:
             if algo not in sel_algos:
                 continue
@@ -399,14 +408,19 @@ def main():
             if out_dir.exists():
                 shutil.rmtree(out_dir)
             out_dir.mkdir()
-            doc = {'sequence': seq, 'algorithm': algo,
-                   'created': datetime.datetime.now(datetime.timezone.utc).isoformat(timespec='seconds')}
-            if not trajectory_path(args.results, seq, algo).is_file():
+            doc = {'sequence': seq, 'dataset': dataset, 'algorithm': algo,
+                   'created': datetime.datetime.now(datetime.timezone.utc).isoformat(timespec='seconds'),
+                   'ground_truth': {'file': g['file'], 'poses': int(len(g['t'])), 'raw_poses': g['raw_poses'],
+                                    'calibration': g['calibration']}}
+            if dataset not in supported[algo]:
+                doc.update(status='n/a', reason=f'not supported on {dataset} (algorithms.conf)')
+                log(f'  {algo:11s} n/a: {doc["reason"]}')
+            elif not trajectory_path(args.results, seq, algo).is_file():
                 doc.update(status='missing', reason=missing_reason(args.results, seq, algo))
                 log(f'  {algo:11s} {doc["status"]}: {doc["reason"]}')
             else:
                 try:
-                    doc.update(evaluate_run(args, seq, algo, algo_dir, gt, out_dir))
+                    doc.update(evaluate_run(args, seq, dataset, algo, algo_dir, gt, out_dir))
                     log(f"  {algo:11s} APE {doc['ape_translation_m']['rmse']:.3f} m, "
                         f"RPE {doc['rpe'].get('translation_pct', {}).get('mean', float('nan')):.2f} %, "
                         f"coverage {doc['coverage']['covered_fraction']:.1%}, "
@@ -425,7 +439,7 @@ def main():
                 docs[algo] = json.loads(path.read_text())
         plot_sequence(seq_dir, seq, gt, algos, docs)
 
-    write_summary(args.results, args.sequences, algos, args.max_gap, args.rpe_delta)
+    write_summary(args.results, [s for s, _ in seqs], algos, args.max_gap, args.rpe_delta)
     log(f"summary: {args.results / 'evaluation' / 'trajectory_summary.md'}")
     return 1 if failures else 0
 

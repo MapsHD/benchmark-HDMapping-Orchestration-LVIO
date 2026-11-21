@@ -24,8 +24,9 @@ import sys
 from pathlib import Path
 
 # common/lvio_py, on PYTHONPATH (overlap.sh mounts it)
+import lvio_ground_truth
 from lvio_results import missing_reason, trajectory_path
-from lvio_trajectory import NS, TrajectoryError, coverage, read_gt_csv, read_tum
+from lvio_trajectory import NS, TrajectoryError, coverage, read_tum
 
 FIELDS = ['sequence', 'algorithm', 'status', 'reason', 'covered_fraction', 'start_delay_s', 'end_shortfall_s',
           'longest_gap_s', 'rate_hz', 'poses', 'duration_ratio', 'gt_poses', 'gt_poses_covered']
@@ -49,6 +50,8 @@ def overlap_run(results, seq, algo, gt_t, max_gap):
 
 
 def fmt(row, key, spec):
+    if row['status'] == 'n/a':
+        return 'n/a'
     value = row.get(key)
     return '–' if row['status'] != 'ok' or value in (None, '') else spec.format(value)
 
@@ -101,35 +104,48 @@ def write_summary(results, seqs, algos, max_gap):
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument('--results', type=Path, required=True)
-    parser.add_argument('--ground-truth', type=Path, required=True, help='folder with gt-nc-<sequence>.csv')
-    parser.add_argument('--gt-pattern', default='gt-nc-{sequence}.csv')
-    parser.add_argument('--sequences', nargs='+', required=True, help='every sequence, in order')
-    parser.add_argument('--algos', nargs='+', required=True, help='every algorithm id, in order')
+    parser.add_argument('--datasets', type=Path, required=True, help='the datasets/ folder (ground truth inside)')
+    parser.add_argument('--calibration-dir', type=Path, required=True, help='folder with <dataset>_calibration.yaml')
+    parser.add_argument('--sequences', nargs='+', required=True, help='every sequence as id=DATASET, in order')
+    parser.add_argument('--algos', nargs='+', required=True, help='every algorithm as id=DATASET[,DATASET...], in order')
     parser.add_argument('--select-sequences', nargs='*', default=None)
     parser.add_argument('--select-algos', nargs='*', default=None)
     parser.add_argument('--max-gap', type=float, default=0.5)
     args = parser.parse_args()
 
+    seqs = [tuple(a.split('=', 1)) for a in args.sequences]
+    supported = {a: set(ds.split(',')) for a, ds in (x.split('=', 1) for x in args.algos)}
+    algos = list(supported)
+    sel_seqs = set(args.select_sequences or [s for s, _ in seqs])
+    sel_algos = set(args.select_algos or algos)
     failures = 0
-    for seq in args.select_sequences or args.sequences:
-        gt_t, _, _ = read_gt_csv(args.ground_truth / args.gt_pattern.format(sequence=seq))
+    for seq, dataset in seqs:
+        if seq not in sel_seqs:
+            continue
+        gt_t = lvio_ground_truth.load(args.datasets, dataset, seq, args.calibration_dir)['t']
         out = args.results / seq / 'evaluation' / 'overlap'
         out.mkdir(parents=True, exist_ok=True)
-        log(f'{seq}: ground truth {len(gt_t)} poses, {(gt_t[-1] - gt_t[0]) / NS:.1f} s')
-        for algo in args.select_algos or args.algos:
-            try:
-                doc = overlap_run(args.results, seq, algo, gt_t, args.max_gap)
-            except (TrajectoryError, OSError, ValueError) as err:
-                doc = {'status': 'failed', 'reason': str(err)}
-                failures += 1
+        log(f'{seq} ({dataset}): ground truth {len(gt_t)} poses, {(gt_t[-1] - gt_t[0]) / NS:.1f} s')
+        for algo in algos:
+            if algo not in sel_algos:
+                continue
+            if dataset not in supported[algo]:
+                doc = {'status': 'n/a', 'reason': f'not supported on {dataset} (algorithms.conf)'}
+            else:
+                try:
+                    doc = overlap_run(args.results, seq, algo, gt_t, args.max_gap)
+                except (TrajectoryError, OSError, ValueError) as err:
+                    doc = {'status': 'failed', 'reason': str(err)}
+                    failures += 1
             if doc['status'] == 'ok':
                 log(f"  {algo:11s} covered {doc['covered_fraction']:.1%}, start {doc['start_delay_s']:+.2f} s, "
                     f"ends early by {doc['end_shortfall_s']:+.2f} s, longest gap {doc['longest_gap_s']:.2f} s, "
                     f"{doc['rate_hz']} Hz")
             else:
                 log(f"  {algo:11s} {doc['status']}: {doc['reason']}")
-            (out / f'{algo}.json').write_text(json.dumps({'sequence': seq, 'algorithm': algo, **doc}, indent=1) + '\n')
-    write_summary(args.results, args.sequences, args.algos, args.max_gap)
+            (out / f'{algo}.json').write_text(json.dumps({'sequence': seq, 'dataset': dataset, 'algorithm': algo, **doc},
+                                                         indent=1) + '\n')
+    write_summary(args.results, [s for s, _ in seqs], algos, args.max_gap)
     log(f"summary: {args.results / 'evaluation' / 'overlap_summary.md'}")
     return 1 if failures else 0
 

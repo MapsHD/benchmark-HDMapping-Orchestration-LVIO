@@ -123,3 +123,33 @@ r3live estimates the camera–IMU time offset online, so no setting is needed.
 - Done: `xvfb` for headless runs.
 - Runs as root in `/root/catkin_ws`; built as `r3live_noetic`. `mw-r3live` (analysed at `6143a38`),
   Livox SDK and `livox_ros_driver` follow HEAD.
+
+## BUNKER (Bunker DVI reg-1): `config/bunker/`
+
+Sensors are the same for every algorithm: the Livox Mid-360 (`/lvio/livox/lidar`, the
+`livox_ros_driver/CustomMsg` copy, or `/lvio/points_xyzirt`), its built-in IMU (`/livox/imu`, 200 Hz,
+acceleration in g) and the D455F colour camera undistorted by Step 1 (`/lvio/d455_rect`, 640 × 480,
+fx 381.93 fy 381.16 cx 325.59 cy 239.48, no distortion, 15 Hz).
+
+The extrinsics come from `steps/1_prepare_data/bunker_calibration.yaml`:
+- **Livox IMU in the LiDAR:** (11.0, 23.29, −44.12) mm, axes aligned (Mid-360 manual);
+- **colour camera in the LiDAR:** estimated by registering D455F depth to the FARO map (notes/scripts/bunker_d455_extrinsic.py);
+- **camera time offset:** −0.03 s (camera stamp − 0.03 s = LiDAR time).
+
+Not run yet (2026-11-21).
+
+- **Image patch** (`lvio/patch_r3live.py`, applied in the Dockerfile before the build):
+  1. `Lidar_offset_to_IMU` is read from `LVIO_LIDAR_OFFSET_TO_IMU`. `config/bunker/r3live.launch`
+     sets `-0.011 -0.02329 0.04412` on `r3live_mapping`. Without it, the Ouster value used for COCO
+     applies, so COCO behaves as before.
+  2. The Livox (HORIZON) front end kept only `x > 0.7 m` (in front of a forward-looking Avia). For
+     the 360° Mid-360 this is now `range > blind` (`Lidar_front_end/blind: 0.5`). Its tag filter
+     (noise bits 0–3) is unchanged.
+- `r3live.yaml`:
+  - `lidar_type: 1`, `N_SCANS: 4`;
+  - camera 640 × 480 with the rectified intrinsics;
+  - `camera_ext_R/t` = T_imu_camera;
+  - `lio_update_point_step: 4` (Livox default);
+  - online extrinsic, intrinsic and time-offset estimation stays on.
+- `r3live.launch`: `/lvio/livox/lidar` is remapped onto the front end's hard-coded `/livox/lidar`.
+  `IMU_topic` is `/livox/imu`, `Image_topic` is `/lvio/d455_rect` (15 Hz, all frames).

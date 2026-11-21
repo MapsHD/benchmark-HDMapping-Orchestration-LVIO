@@ -7,7 +7,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 source "$SCRIPT_DIR/../../algos_lib.sh"
 
 IMAGE_NAME="lvio-eval"   # built from steps/5_evaluate_trajectories/
-DATA_DIR="$LVIO_ROOT/datasets/COCO"
+DATA_DIR="$LVIO_DATASETS_DIR"
 RESULTS_DIR="$LVIO_ROOT/results"
 MAX_GAP="0.5"
 
@@ -20,7 +20,7 @@ covered share of the ground-truth stamps, start delay, how early it ends, longes
 Writes results/<sequence>/evaluation/overlap/ and results/evaluation/overlap_summary.{csv,md,tex}.
 
   --results-dir DIR    results of Steps 3 and 4                  (default: results)
-  --data-dir DIR       dataset directory (ground_truth/ inside)  (default: datasets/COCO)
+  --data-dir DIR       folder holding the dataset folders        (default: datasets)
   --max-gap SECONDS    own gaps longer than this are not covered (default: 0.5, as Step 5)
 
 Set ONLY_ALGOS / ONLY_SEQUENCES to redo only those runs; the summary always covers every run
@@ -45,30 +45,28 @@ check_only_algos
 check_only_sequences
 
 RESULTS_DIR="$(realpath -m "$RESULTS_DIR")"
-GT_DIR="$(realpath -m "$DATA_DIR/ground_truth")"
+DATA_DIR="$(realpath -m "$DATA_DIR")"
 if [ ! -d "$RESULTS_DIR" ]; then
     echo "ERROR: no results directory $RESULTS_DIR (run Steps 3 and 4)" >&2; exit 1
 fi
-mapfile -t ALL_SEQS < <(seq_ids)
+ALL_SEQS=()
+while IFS=$'\t' read -r seq dataset _bag; do ALL_SEQS+=("$seq=$dataset"); done < <(ONLY_SEQUENCES='' seq_rows)
 mapfile -t SEL_SEQS < <(seq_rows | cut -f1)
-mapfile -t ALL_ALGOS < <(algo_ids)
+ALL_ALGOS=()
+while IFS=$'\t' read -r _distro _dir id _input datasets; do ALL_ALGOS+=("$id=$datasets"); done < <(ONLY_ALGOS='' algo_rows)
 mapfile -t SEL_ALGOS < <(algo_rows | cut -f3)
-for seq in "${SEL_SEQS[@]}"; do
-    if [ ! -f "$GT_DIR/gt-nc-$seq.csv" ]; then
-        echo "ERROR: missing ground truth $GT_DIR/gt-nc-$seq.csv" >&2; exit 1
-    fi
-done
 
 echo "Building helper image '$IMAGE_NAME'..."
 docker build -q -t "$IMAGE_NAME" "$LVIO_ROOT/steps/5_evaluate_trajectories" >/dev/null || exit 1
 
 docker run --rm --init --user "$(id -u):$(id -g)" \
     -v "$RESULTS_DIR":/results \
-    -v "$GT_DIR":/gt:ro \
+    -v "$DATA_DIR":/datasets:ro \
+    -v "$LVIO_ROOT/steps/1_prepare_data":/calibration:ro \
     -v "$SCRIPT_DIR":/app:ro \
     -v "$LVIO_ROOT/common/lvio_py":/lvio_py:ro -e PYTHONPATH=/lvio_py \
     "$IMAGE_NAME" python3 /app/overlap.py \
-        --results /results --ground-truth /gt \
+        --results /results --datasets /datasets --calibration-dir /calibration \
         --sequences "${ALL_SEQS[@]}" --algos "${ALL_ALGOS[@]}" \
         --select-sequences "${SEL_SEQS[@]}" --select-algos "${SEL_ALGOS[@]}" \
         --max-gap "$MAX_GAP"

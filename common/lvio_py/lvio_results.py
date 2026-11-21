@@ -29,3 +29,18 @@ def missing_reason(results, seq, algo):
 def trajectory_path(results, seq, algo):
     """The Step 4 trajectory of a run."""
     return Path(results) / seq / algo / 'export' / f'{algo}_trajectory_tum.txt'
+
+
+def deep_merge(base, override):
+    """dict base updated recursively with override (override wins; non-dict values replace)."""
+    out = dict(base)
+    for key, value in (override or {}).items():
+        out[key] = deep_merge(out[key], value) if isinstance(value, dict) and isinstance(out.get(key), dict) else value
+    return out
+
+
+def spec_for_dataset(spec, dataset):
+    """An export.yaml with its 'datasets: {<DATASET>: {...}}' override for this dataset merged in."""
+    overrides = spec.get('datasets') or {}
+    merged = deep_merge({k: v for k, v in spec.items() if k != 'datasets'}, overrides.get(dataset) or {})
+    return merged

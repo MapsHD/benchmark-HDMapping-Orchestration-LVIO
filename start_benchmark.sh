@@ -12,7 +12,7 @@ usage() {
     cat <<EOF
 Usage: $0 [--force] [--no-rviz] [--rate RATE] [algorithm-id ...]
 
-          validate.sh                               (Docker and the COCO dataset; stops on failure)
+          validate.sh                               (Docker and every dataset; stops on failure)
   Step 1  steps/1_prepare_data/prepare_data.sh      (existing common bags are kept)
   Step 2  steps/2_build_images/build_images.sh
   Step 3  steps/3_run_benchmark/run_benchmark.sh    (--force/--no-rviz/--rate are passed here)

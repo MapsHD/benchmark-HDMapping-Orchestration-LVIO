@@ -1,0 +1,13 @@
+# D455F colour, undistorted in Step 1 (/lvio/d455_rect): bunker_calibration.yaml camera_rect.
+cam_model: Pinhole
+cam_width: 640
+cam_height: 480
+scale: 1.0
+cam_fx: 381.93
+cam_fy: 381.16
+cam_cx: 325.59
+cam_cy: 239.48
+cam_d0: 0.0
+cam_d1: 0.0
+cam_d2: 0.0
+cam_d3: 0.0

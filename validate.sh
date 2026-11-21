@@ -7,7 +7,7 @@ ROOT="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck source=algos_lib.sh
 source "$ROOT/algos_lib.sh"
 
-DATA_DIR="$LVIO_ROOT/datasets/COCO"
+DATA_DIR="$LVIO_DATASETS_DIR"
 
 usage() {
     cat <<EOF
@@ -15,10 +15,12 @@ Usage: $0 [--data-dir DIR]
 
 Checks:
   Docker  the docker command, a running daemon, and access without sudo
-  COCO    <data-dir> holds every original bag of sequences.conf as a readable ROS 1 bag, and
-          <data-dir>/ground_truth/gt-nc-<sequence>.csv for each sequence (Steps 5 and 6)
+  Data    for every sequence of sequences.conf: <data-dir>/<dataset>/<bag> is a readable ROS 1 bag,
+          and its dataset's ground truth (Steps 5 and 6) is there:
+            COCO    <data-dir>/COCO/ground_truth/gt-nc-<sequence>.csv
+            BUNKER  <data-dir>/BUNKER/HDMappingGroundTruth/lio_result_0/lio_result_0_trajectory_tum.txt
 
-  --data-dir DIR   dataset directory (default: datasets/COCO)
+  --data-dir DIR   folder holding the dataset folders (default: datasets)
 
 Set ONLY_SEQUENCES="stairs" to check only those sequences.
 Exits 1 if any check fails. start_benchmark.sh runs it before Step 1.
@@ -57,31 +59,36 @@ else
     fail "docker command not found: install Docker Engine (https://docs.docker.com/engine/install/)"
 fi
 
-echo "=== COCO dataset ($DATA_DIR)"
-if [ -d "$DATA_DIR" ] && [ -r "$DATA_DIR" ] && [ -x "$DATA_DIR" ]; then
-    pass "dataset directory accessible: $DATA_DIR"
-else
-    fail "missing or inaccessible dataset directory: $DATA_DIR (see datasets/README.md)"
-fi
-while IFS=$'\t' read -r -u 3 seq bag; do
-    path="$DATA_DIR/$bag"
+echo "=== Datasets ($DATA_DIR)"
+while IFS=$'\t' read -r -u 3 seq dataset bag; do
+    path="$DATA_DIR/$dataset/$bag"
     if [ ! -f "$path" ] || [ ! -r "$path" ] || [ ! -s "$path" ]; then
-        fail "$seq: missing, empty or unreadable bag $path"
+        fail "$seq: missing, empty or unreadable bag $path (see datasets/README.md)"
     elif [ "$(head -c 13 "$path")" != "#ROSBAG V2.0" ]; then
         fail "$seq: $path is not a ROS 1 bag (no '#ROSBAG V2.0' header)"
     else
-        pass "$seq: $bag ($(du -h "$path" | cut -f1))"
+        pass "$seq: $dataset/$bag ($(du -h "$path" | cut -f1))"
     fi
-done 3< <(seq_rows)
-while IFS=$'\t' read -r -u 3 seq _bag; do
-    gt="$DATA_DIR/ground_truth/gt-nc-$seq.csv"
-    if [ ! -f "$gt" ] || [ ! -r "$gt" ] || [ ! -s "$gt" ]; then
-        fail "$seq: missing, empty or unreadable ground truth $gt"
-    elif [ "$(head -n 1 "$gt" | tr -d '\r')" != "#sec,nsec,x,y,z,qx,qy,qz,qw" ]; then
-        fail "$seq: $gt does not start with the header '#sec,nsec,x,y,z,qx,qy,qz,qw'"
-    else
-        pass "$seq: ground truth $(basename "$gt") ($(($(wc -l < "$gt") - 1)) poses)"
-    fi
+    case "$dataset" in
+        COCO)
+            gt="$DATA_DIR/COCO/ground_truth/gt-nc-$seq.csv"
+            if [ ! -f "$gt" ] || [ ! -r "$gt" ] || [ ! -s "$gt" ]; then
+                fail "$seq: missing, empty or unreadable ground truth $gt"
+            elif [ "$(head -n 1 "$gt" | tr -d '\r')" != "#sec,nsec,x,y,z,qx,qy,qz,qw" ]; then
+                fail "$seq: $gt does not start with the header '#sec,nsec,x,y,z,qx,qy,qz,qw'"
+            else
+                pass "$seq: ground truth $(basename "$gt") ($(($(wc -l < "$gt") - 1)) poses)"
+            fi ;;
+        BUNKER)
+            gt="$DATA_DIR/BUNKER/HDMappingGroundTruth/lio_result_0/lio_result_0_trajectory_tum.txt"
+            if [ ! -f "$gt" ] || [ ! -r "$gt" ] || [ ! -s "$gt" ]; then
+                fail "$seq: missing, empty or unreadable ground truth $gt"
+            else
+                pass "$seq: ground truth $(basename "$gt") ($(wc -l < "$gt") poses)"
+            fi ;;
+        *)
+            fail "$seq: unknown dataset '$dataset' (sequences.conf)" ;;
+    esac
 done 3< <(seq_rows)
 
 echo "=== $PASSED passed, $FAILED failed"

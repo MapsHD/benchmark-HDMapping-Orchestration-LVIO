@@ -1,5 +1,8 @@
 #!/usr/bin/env python3
-"""Step 1: build the LVIO common ROS 1 bag for one COCO (Newer College Multi-Cam 2021) sequence.
+"""Step 1: build the LVIO common ROS 1 bag for one sequence.
+
+COCO (Newer College Multi-Cam 2021) is described below; BUNKER (Bunker DVI) is in bunker_common_bag.py
+(selected with --dataset BUNKER).
 
 The common bag is the single input every (ROS 1) algorithm reads (see README.md). It contains:
 
@@ -190,17 +193,23 @@ def convert(src, dst, calib, duration=None):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument('src', type=Path, help='original COCO bag')
+    parser.add_argument('src', type=Path, help='original bag')
     parser.add_argument('dst', type=Path, help='common bag to write')
-    parser.add_argument('--calib', type=Path, default=Path(__file__).with_name('coco_calibration.yaml'))
+    parser.add_argument('--dataset', default='COCO', choices=['COCO', 'BUNKER'], help='recipe to use')
+    parser.add_argument('--calib', type=Path, default=None, help='default: <dataset>_calibration.yaml beside this script')
     parser.add_argument('--duration', type=float, default=None,
                         help='convert only the first N seconds (quick tests)')
     args = parser.parse_args()
     if args.dst.exists():
         sys.exit(f'ERROR: {args.dst} exists')
-    with open(args.calib) as handle:
+    calib_path = args.calib or Path(__file__).with_name(f'{args.dataset.lower()}_calibration.yaml')
+    with open(calib_path) as handle:
         calib = yaml.safe_load(handle)
-    convert(args.src, args.dst, calib, args.duration)
+    if args.dataset == 'BUNKER':
+        import bunker_common_bag   # beside this script
+        bunker_common_bag.convert(args.src, args.dst, calib, TS, args.duration)
+    else:
+        convert(args.src, args.dst, calib, args.duration)
 
 
 if __name__ == '__main__':

@@ -19,3 +19,8 @@ map:
   file: lvi_sam_map/cloudGlobal.pcd
   attribute: intensity
   description: LVI-SAM's own global map (features of the loop-closed keyframes)
+datasets:                          # per-dataset overrides of the keys above (merged into them)
+  BUNKER:
+    frames:
+      world: odom (LVI-SAM map frame)
+      body: LiDAR (Livox Mid-360, livox_frame)
