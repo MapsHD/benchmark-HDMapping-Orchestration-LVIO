@@ -1,0 +1,102 @@
+# FAST-LIVO2 on BUNKER (Bunker DVI reg-1). Values: ../../NOTES.md (BUNKER section).
+# LiDAR: Livox Mid-360 as livox_ros_driver/CustomMsg (/lvio/livox/lidar, Step 1); IMU: the Livox built-in IMU
+# (acceleration in g: FAST-LIVO2 scales by the mean acceleration at start); camera: D455F colour, undistorted
+# (/lvio/d455_rect, Step 1), 15 -> 10 Hz in fast_livo2.launch. Extrinsics: steps/1_prepare_data/bunker_calibration.yaml.
+# The sections from vio: on are those of ../coco.yaml (except imu gyr_cov).
+common:
+  img_topic: "/lvio/d455_10hz/image_raw"      # D455F colour rectified, 15 -> 10 Hz, republished raw (fast_livo2.launch)
+  lid_topic: "/lvio/livox/lidar"              # Livox Mid-360, livox_ros_driver/CustomMsg
+  imu_topic: "/livox/imu"                     # Livox built-in IMU, 200 Hz
+  img_en: 1
+  lidar_en: 1
+  ros_driver_bug_fix: false
+
+extrin_calib:
+  # T_imu_lidar (LiDAR in the Livox IMU frame): p_imu = R * p_lidar + T
+  extrinsic_T: [-0.011, -0.02329, 0.04412]
+  extrinsic_R: [1, 0, 0,
+                0, 1, 0,
+                0, 0, 1]
+  # T_cam_lidar (LiDAR -> D455F colour optical): p_cam = Rcl * p_lidar + Pcl
+  Rcl: [-0.011442, -0.999841, -0.013662,
+         0.165756,  0.011577, -0.986099,
+         0.986100, -0.013548,  0.165597]
+  Pcl: [-0.044389, -0.138587, -0.065535]
+
+time_offset:
+  imu_time_offset: 0.0
+  img_time_offset: -0.03      # D455F stamp - 0.03 s = LiDAR time (estimated, bunker_calibration.yaml)
+  lidar_time_offset: 0.0      # Livox header = scan start (timebase)
+  exposure_time_init: 0.0
+
+preprocess:
+  hilti_en: false
+  point_filter_num: 1         # as config/avia.yaml
+  filter_size_surf: 0.1
+  lidar_type: 1               # Livox CustomMsg (the avia handler; no tag filter without feature extraction)
+  scan_line: 4                # Mid-360: 4 lines
+  blind: 0.5                  # Mid-360 blind zone (as the LIO benchmark's LIO-SAM Bunker config)
+
+vio:
+  max_iterations: 5
+  outlier_threshold: 500
+  img_point_cov: 1000
+  patch_size: 8
+  patch_pyrimid_level: 4
+  normal_en: true
+  raycast_en: false
+  inverse_composition_en: false
+  exposure_estimate_en: true
+  inv_expo_cov: 0.1
+
+imu:
+  imu_en: true
+  imu_int_frame: 30
+  acc_cov: 0.5
+  gyr_cov: 0.3                # as config/avia.yaml (Livox built-in IMU)
+  b_acc_cov: 0.0001
+  b_gyr_cov: 0.0001
+
+lio:
+  max_iterations: 5
+  dept_err: 0.02
+  beam_err: 0.01
+  min_eigen_value: 0.0025
+  voxel_size: 0.5
+  max_layer: 2
+  max_points_num: 50
+  layer_init_num: [5, 5, 5, 5, 5]
+
+local_map:
+  map_sliding_en: false
+  half_map_size: 100
+  sliding_thresh: 8
+
+uav:
+  imu_rate_odom: false
+  gravity_align_en: false
+
+publish:
+  dense_map_en: true
+  pub_effect_point_en: false
+  pub_plane_en: false
+  pub_scan_num: 1
+  blind_rgb_points: 0.0
+
+evo:
+  # Native TUM trajectory, stamped with the LIO update time (/aft_mapped_to_init is stamped with
+  # ros::Time::now(), i.e. publish time). Written to Log/result/<seq_name>.txt, which the image
+  # links to <output>/result/ (Dockerfile), so it lands in result/trajectory.txt.
+  seq_name: "trajectory"
+  pose_output_en: true
+
+pcd_save:
+  pcd_save_en: false          # map is recorded from /cloud_registered instead
+  type: 0
+  colmap_output_en: false
+  filter_size_pcd: 0.15
+  interval: -1
+
+image_save:
+  img_save_en: false
+  interval: 1

@@ -1,0 +1,29 @@
+# Step 4 export and Step 5 evaluation of an r3live run (keys explained in steps/4_export/export_results.py and steps/5_evaluate_trajectories/evaluate_trajectories.py).
+frames:
+  world: world (first Ouster IMU pose)
+  body: Ouster IMU (os_imu)
+lidar_extrinsic:                   # Step 5: LiDAR (os_sensor) pose in the body frame, as r3live is configured
+  # Lidar_offset_to_IMU, patched in the Dockerfile; r3live has no LiDAR-IMU rotation
+  rotation: identity
+  translation: [-0.006253, 0.011775, -0.007645]
+trajectory:
+  # /aft_mapped_to_init is stamped with ros::Time::now() (r3live_lio.cpp:1022). /cloud_registered is
+  # published in the same LIO iteration and stamped with lidar_end_time (r3live_lio.cpp:962/1006),
+  # so the n-th pose takes the stamp of the n-th cloud.
+  source: odometry
+  topic: /aft_mapped_to_init
+  stamp_from: /cloud_registered
+map:
+  # The RGB map is only written when 's' is pressed in r3live's control panel (see NOTES.md).
+  source: accumulate
+  topic: /cloud_registered
+  attribute: intensity
+  description: sum of /cloud_registered (dense scans of the LIO subsystem)
+datasets:                          # per-dataset overrides of the keys above (merged into them)
+  BUNKER:
+    frames:
+      world: world (first Livox IMU pose)
+      body: Livox Mid-360 IMU
+    lidar_extrinsic:               # LVIO_LIDAR_OFFSET_TO_IMU in config/bunker/r3live.launch
+      rotation: identity
+      translation: [-0.011, -0.02329, 0.04412]

@@ -1,0 +1,26 @@
+# Step 4 export and Step 5 evaluation of an LVI-SAM run (keys explained in steps/4_export/export_results.py and steps/5_evaluate_trajectories/evaluate_trajectories.py).
+frames:
+  world: odom (LVI-SAM map frame)
+  body: LiDAR (os_sensor; LVI-SAM optimises the LiDAR pose)
+lidar_extrinsic:                   # Step 5: the body frame is the LiDAR itself
+  rotation: identity
+  translation: [0, 0, 0]
+trajectory:
+  source: odometry                 # online scan-to-map poses; header stamp = scan time
+  topic: /lvi_sam/lidar/mapping/odometry
+extra_trajectories:
+  keyframes:                       # loop-closed keyframe poses (same as lvi_sam_map/transformations.pcd)
+    source: path_last
+    topic: /lvi_sam/lidar/mapping/path
+map:
+  # Saved on shutdown (savePCD): corner + surface features of all keyframes placed with the
+  # loop-closed poses. /lvi_sam/lidar/mapping/cloud_registered only holds ~600 features per scan.
+  source: pcd
+  file: lvi_sam_map/cloudGlobal.pcd
+  attribute: intensity
+  description: LVI-SAM's own global map (features of the loop-closed keyframes)
+datasets:                          # per-dataset overrides of the keys above (merged into them)
+  BUNKER:
+    frames:
+      world: odom (LVI-SAM map frame)
+      body: LiDAR (Livox Mid-360, livox_frame)

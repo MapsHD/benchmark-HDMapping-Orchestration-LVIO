@@ -1,0 +1,43 @@
+# r3live on BUNKER (Bunker DVI reg-1). Values: ../../NOTES.md (BUNKER section).
+# Base: ../r3live_coco.yaml with the Livox settings of r3live_config.yaml (lidar_type 1 = Livox CustomMsg).
+# LiDAR: Livox Mid-360 (/lvio/livox/lidar remapped to /livox/lidar in r3live.launch); IMU: the Livox built-in IMU;
+# camera: D455F colour undistorted (/lvio/d455_rect, Step 1), all 15 Hz. Extrinsics: bunker_calibration.yaml.
+Lidar_front_end:
+   lidar_type: 1              # Livox CustomMsg (HORIZON handler; its x > 0.7 m filter is patched to a range check)
+   N_SCANS: 4                 # Mid-360: 4 lines
+   using_raw_point: 1
+   point_step: 1
+   blind: 0.5                 # Mid-360 blind zone
+r3live_common:
+   if_dump_log: 0
+   record_offline_map: 1      # offline RGB map in map_output_dir (set in r3live.launch)
+   pub_pt_minimum_views: 3
+   minimum_pts_size: 0.01
+   image_downsample_ratio: 1
+   estimate_i2c_extrinsic: 1
+   estimate_intrinsic: 1
+   maximum_vio_tracked_pts: 600
+   append_global_map_point_step: 4
+r3live_vio:
+   image_width: 640
+   image_height: 480
+   # D455F colour, rectified (steps/1_prepare_data/bunker_calibration.yaml, camera_rect)
+   camera_intrinsic:
+      [381.93, 0.0, 325.59,
+       0.0, 381.16, 239.48,
+       0.0, 0.0, 1.0]
+   camera_dist_coeffs: [0.0, 0.0, 0.0, 0.0, 0.0]  # k1, k2, p1, p2, k3
+   # pose of the camera in the Livox IMU frame (T_imu_camera), row-major
+   camera_ext_R:
+      [-0.011442,  0.165756,  0.986100,
+       -0.999841,  0.011577, -0.013548,
+       -0.013662, -0.986099,  0.165597]
+   camera_ext_t: [0.076088, -0.066955, -0.082294]
+r3live_lio:
+   lio_update_point_step: 4   # as r3live_config.yaml (Livox)
+   max_iteration: 2
+   lidar_time_delay: 0
+   filter_size_corner: 0.30
+   filter_size_surf: 0.30
+   filter_size_surf_z: 0.30
+   filter_size_map: 0.30

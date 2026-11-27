@@ -1,0 +1,11 @@
+imu_topic: /alphasense_driver_ros/imu   # Alphasense IMU, 200 Hz
+imu_excite_threshold: 0.5  # statical initialization, do not move!
+gravity_mag: 9.81
+if_normalized: false  # acc is in m/s^2
+if_use_init_bg: false
+
+IMUExtrinsics:  # imu to imu
+    Trans: [0, 0, 0]
+    Rot: [1, 0, 0,
+          0, 1, 0,
+          0, 0, 1]

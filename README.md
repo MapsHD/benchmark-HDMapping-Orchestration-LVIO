@@ -1,1 +1,663 @@
 # benchmark-HDMapping-Orchestration-LVIO (LiDAR-Visual-Inertial Odometry)
+
+Runs LiDAR-visual-inertial odometry algorithms on one common dataset, each in its own Docker
+image, and collects their trajectories and maps. It is the LVIO counterpart of
+[benchmark-HDMapping-Orchestration](https://github.com/MapsHD/benchmark-HDMapping-Orchestration)
+(LIO), with the same step structure and an `algorithms.conf` single source of truth.
+
+| Algorithm | Repository built by the image |
+| --- | --- |
+| COIN-LIO | [mwlasiuk/mw-COIN-LIO](https://github.com/mwlasiuk/mw-COIN-LIO) |
+| FAST-LIVO2 | [mwlasiuk/mw-FAST-LIVO2](https://github.com/mwlasiuk/mw-FAST-LIVO2) |
+| r3live | [mwlasiuk/mw-r3live](https://github.com/mwlasiuk/mw-r3live) |
+| LVI-SAM | [mwlasiuk/mw-LVI-SAM](https://github.com/mwlasiuk/mw-LVI-SAM) |
+| Coco-LIC | [APRIL-ZJU/Coco-LIC](https://github.com/APRIL-ZJU/Coco-LIC) (pinned commit) |
+
+> **Status.** All five images build. Two datasets: **COCO** (Newer College) and **BUNKER** (Bunker DVI
+> reg-1, the LIO benchmark's dataset). BUNKER support (4 algorithms; COIN-LIO cannot run on a Livox)
+> is implemented but has not been run yet. COCO results (run of 2026-11-14):
+> - Coco-LIC on `quad-easy` and `quad-hard` stops with an OpenCV exception in its visual front end.
+> - r3live falls behind real time on `quad-easy` and `quad-medium`, so its trajectory ends 26 s
+>   and 10 s before the bag (see the coverage in Steps 5 and 6).
+>
+> Steps 4–6 export every successful run (TUM trajectory, PLY map) and evaluate the trajectories
+> against the ground truth (APE/RPE with evo, coverage). Evaluating the maps needs a reference map
+> and is not part of the pipeline yet. Parameter tuning is still open.
+
+## Contents
+
+- [Repository layout](#repository-layout)
+- [0. Dataset and prerequisites](#0-dataset-and-prerequisites)
+  - [Validate and clean](#validate-and-clean)
+- [1. Make scripts executable](#1-make-scripts-executable)
+- [2. Run](#2-run)
+  - [2.1 Full automation](#21-full-automation)
+  - [Step 1 Prepare the common bags](#step-1-prepare-the-common-bags)
+  - [Step 2 Build the algorithm images](#step-2-build-the-algorithm-images)
+  - [Step 3 Run the algorithms](#step-3-run-the-algorithms)
+  - [Step 4 Export trajectories and maps](#step-4-export-trajectories-and-maps)
+  - [Step 5 Evaluate the trajectories](#step-5-evaluate-the-trajectories)
+  - [Step 6 Ground-truth coverage](#step-6-ground-truth-coverage)
+- [3. Algorithms and their inputs](#3-algorithms-and-their-inputs)
+- [4. Results](#4-results)
+- [5. Adding an algorithm](#5-adding-an-algorithm)
+- [6. Troubleshooting](#6-troubleshooting)
+
+## Repository layout
+
+```text
+.
+├── algorithms.conf                 # algorithms: distro | dir | id | input | datasets
+├── sequences.conf                  # sequences: id | original bag
+├── algos_lib.sh                    # readers for both .conf files (ONLY_ALGOS / ONLY_SEQUENCES)
+├── start_benchmark.sh              # validate.sh, then Steps 1-4 in one go
+├── validate.sh                     # checks Docker and the COCO dataset (read-only)
+├── clean.sh                        # removes the outputs of all steps (asks first)
+├── steps/
+│   ├── 1_prepare_data/             # Step 1: original bag -> common ROS 1 bag
+│   │   ├── prepare_data.sh
+│   │   ├── make_common_bag.py      #   converter (rosbags + OpenCV, no ROS needed); COCO recipe
+│   │   ├── bunker_common_bag.py    #   BUNKER recipe (--dataset BUNKER)
+│   │   ├── coco_calibration.yaml   #   per dataset: calibration, rectified camera, ground truth, frames
+│   │   ├── bunker_calibration.yaml
+│   │   └── Dockerfile              #   helper image lvio-prepare (Steps 1 and 4)
+│   ├── 2_build_images/
+│   │   └── build_images.sh         # Step 2: docker build of every algorithm
+│   ├── 3_run_benchmark/
+│   │   └── run_benchmark.sh        # Step 3: every algorithm on every sequence
+│   ├── 4_export/                   # Step 4: trajectories -> TUM, maps -> PLY (Python, no ROS)
+│   │   ├── export.sh
+│   │   └── export_results.py
+│   ├── 5_evaluate_trajectories/    # Step 5: APE / RPE against the ground truth (evo)
+│   │   ├── evaluate_trajectories.sh
+│   │   ├── evaluate_trajectories.py
+│   │   └── Dockerfile              #   helper image lvio-eval (Steps 5 and 6)
+│   └── 6_overlap/                  # Step 6: ground-truth coverage
+│       ├── overlap.sh
+│       └── overlap.py
+├── common/                         # generic Docker / ROS 1 session used by every run.sh
+│   └── lvio_py/                    #   Python shared by Steps 4-6 (TUM files, poses, results layout)
+├── algorithms/<ALGORITHM>/
+│   ├── Dockerfile
+│   ├── run.sh                      # one run: run.sh <common_bag> <output_dir>
+│   ├── config/                     # launch file + configs for COCO; config/bunker/ for BUNKER
+│   ├── export.yaml                 # Steps 4-5: its trajectory and map sources, frames, LiDAR extrinsic
+│   └── NOTES.md                    # why each input/parameter was chosen, with code references
+├── datasets/                       # data (git-ignored, see datasets/README.md)
+├── results/                        # run outputs (git-ignored)
+└── notes/                          # working notes (git-ignored)
+```
+
+# 0. Dataset and prerequisites
+
+## Datasets
+
+[sequences.conf](sequences.conf) lists every sequence with its dataset. Each dataset has a folder
+`datasets/<dataset>/` (layout: [datasets/README.md](datasets/README.md)) and a description file
+`steps/1_prepare_data/<dataset>_calibration.yaml` (calibration, rectified camera, ground truth).
+[algorithms.conf](algorithms.conf) lists the datasets each algorithm runs on.
+
+**COCO**: four sequences of the
+[Newer College Dataset, Multi-Cam extension (2021)](https://ori-drs.github.io/newer-college-dataset/multi-cam/).
+They were recorded with an Ouster OS0-128 LiDAR and an Alphasense Core (4 cameras + IMU).
+Place the original bags in `datasets/COCO/` under the names listed in sequences.conf.
+
+| Sequence | Bag | Duration |
+| --- | --- | --- |
+| quad-easy | `2021-07-01-10-37-38-quad-easy-004.bag` | 199 s |
+| quad-medium | `2021-07-01-11-31-35_0-quad-medium-001.bag` | 191 s |
+| quad-hard | `2021-07-01-11-35-14_0-quad-hard-002.bag` | 188 s |
+| stairs | `2021-07-01-10-40-50_0-stairs-003.bag` | 119 s |
+
+**BUNKER**: `reg-1` of the [Bunker DVI dataset](https://charleshamesse.github.io/bunker-dvi-dataset),
+the LIO benchmark's dataset (`reg-1.bag`, 48 GB, 348 s). It was recorded with a Livox Mid-360, an
+Alphasense Core, a RealSense D455F and an Azure Kinect.
+- **Copy:** copy `reg-1.bag`, `HDMappingGroundTruth/` and `TLS-FARO-Focus/` into `datasets/BUNKER/`
+  (from `~/hdmapping-benchmark/data/` if the LIO benchmark is set up).
+- **Sensors used** (one camera and one IMU for every algorithm): the Livox Mid-360 LiDAR, its
+  built-in IMU, and the D455F colour camera.
+- **No calibration files:** the dataset's calibration files are no longer downloadable. The
+  LiDAR → camera extrinsic and the camera time offset were estimated from the data: D455F depth
+  frames, placed with the ground-truth poses, were registered to the FARO map (median residual
+  1.1 cm). Details are in `bunker_calibration.yaml`.
+- **Ground truth:** the LIO benchmark's HDMapping session, about 200 Hz, starting about 20 s after
+  the bag.
+- **Reference map:** the FARO laser scan (for future map evaluation).
+
+## Prerequisites
+
+- Linux with Bash and Docker; your user must be able to run `docker` without `sudo`.
+  ROS is **not** needed on the host.
+- Internet access for the image builds (algorithm sources are cloned from GitHub).
+- Disk space: about **65 GB** for the four common bags (uncompressed), plus 6–9 GB per algorithm
+  image (≈ 36 GB for all five).
+- An X session: every run shows RViz by default, and the containers use your display
+  (`xhost +local:docker`, from `x11-xserver-utils`). For headless runs, pass `--no-rviz`.
+- Optional: for Step 1 without Docker (`--no-docker`), Python 3 with
+  `rosbags==0.11.9 numpy opencv-python-headless PyYAML`.
+
+## Validate and clean
+
+[validate.sh](validate.sh) checks:
+- Docker: the `docker` command, a running daemon, and access without `sudo`;
+- every original bag of [sequences.conf](sequences.conf) is in `datasets/<dataset>/` and is a
+  readable ROS 1 bag;
+- the ground truth of every sequence (Steps 5 and 6) is there:
+  - COCO: `ground_truth/gt-nc-<sequence>.csv` with its `#sec,nsec,…` header;
+  - BUNKER: `HDMappingGroundTruth/lio_result_0/lio_result_0_trajectory_tum.txt`.
+
+It changes nothing and exits 1 if a check fails. `start_benchmark.sh` runs it before Step 1;
+run it yourself when you run the steps one by one. It honours `ONLY_SEQUENCES` and takes
+`--data-dir DIR`.
+
+```shell
+./validate.sh
+```
+
+[clean.sh](clean.sh) removes what the steps produced:
+- this benchmark's Docker images: `lvio-prepare`, `lvio-eval` and the five `<id>_<distro>` images,
+  no others;
+- the common bags of Step 1 (`datasets/<dataset>/common-ros1/`: about 59 GB for COCO, 5 GB for BUNKER);
+- the results of Steps 3 to 6 (everything in `results/`).
+
+It keeps:
+- the original bags, `cam_calibration/` and `ground_truth/`;
+- the repository and `notes/`;
+- Docker's build cache (`docker builder prune` frees that, for every build on the machine).
+
+It lists every target with its size, refuses to run while a benchmark container is running, and
+asks you to type `CLEAN`.
+
+```shell
+./clean.sh --dry-run    # only list what would be removed
+./clean.sh
+```
+
+# 1. Make scripts executable
+
+The scripts carry the executable bit. If your copy lost it:
+
+```shell
+cd mw-benchmark-HDMapping-Orchestration-LVIO
+chmod +x start_benchmark.sh validate.sh clean.sh algos_lib.sh common/*.sh \
+    steps/1_prepare_data/prepare_data.sh steps/1_prepare_data/make_common_bag.py \
+    steps/2_build_images/build_images.sh steps/3_run_benchmark/run_benchmark.sh \
+    steps/4_export/export.sh steps/4_export/export_results.py \
+    steps/5_evaluate_trajectories/evaluate_trajectories.sh steps/5_evaluate_trajectories/evaluate_trajectories.py \
+    steps/6_overlap/overlap.sh steps/6_overlap/overlap.py \
+    algorithms/*/run.sh algorithms/LVI-SAM/lvio/lvio_imu_virtual_frame.py
+```
+
+# 2. Run
+
+All commands are run from the repository root. Algorithm ids are the `id` column of
+[algorithms.conf](algorithms.conf): `coin-lio fast-livo2 r3live lvi-sam coco-lic`. Sequence ids are
+the `id` column of [sequences.conf](sequences.conf). An unknown id aborts and prints the known ones.
+
+## 2.1 Full automation
+
+```shell
+./start_benchmark.sh                       # all algorithms, all sequences
+./start_benchmark.sh fast-livo2 r3live     # only these algorithms
+ONLY_SEQUENCES="stairs" ./start_benchmark.sh --no-rviz   # headless
+```
+
+`start_benchmark.sh` first runs `validate.sh` and stops if it fails. Unless `--no-rviz` is
+given, it also stops at once when there is no X display.
+
+| Argument | Purpose | Default |
+| --- | --- | --- |
+| `algorithm-id ...` | restrict Steps 2-6 to these algorithms | all |
+| `--force` | Step 3: delete and redo existing results | skip existing |
+| `--no-rviz` | Step 3: run without RViz (headless) | RViz shown |
+| `--rate RATE` | Step 3: `rosbag play` rate | `1.0` |
+| `ONLY_SEQUENCES` | restrict Steps 1 and 3-6 to these sequences | all |
+
+Step 1 always keeps existing common bags, and Step 4 existing exports. Use the step scripts
+directly to rebuild them. Steps 5 and 6 always recompute (seconds). Steps 4-6 also run when some
+Step 3 runs failed (they skip those and list them as missing), but not after Ctrl-C.
+
+## Step 1 Prepare the common bags
+
+Every algorithm reads the same per-sequence **common bag**. It contains the original sensor data
+plus the two derived streams some algorithms need, so nothing algorithm-specific is precomputed.
+
+```shell
+./steps/1_prepare_data/prepare_data.sh
+```
+
+The script builds the helper image `lvio-prepare` (Python, no ROS) and converts every sequence:
+
+```text
+datasets/<dataset>/<bag of sequences.conf>  ->  datasets/<dataset>/common-ros1/<sequence>.bag
+```
+
+Each dataset has its own recipe (`--dataset`, set from sequences.conf). The COCO recipe is
+described below. The BUNKER recipe (`bunker_common_bag.py`) keeps:
+- the Livox scans (`/livox/lidar`);
+- the Livox IMU (`/livox/imu`, acceleration in g);
+- the D455F colour stream and its `camera_info`.
+
+It also adds three derived streams:
+- `/lvio/livox/lidar`: the same scans typed `livox_ros_driver/CustomMsg`, the type the algorithms
+  are built against;
+- `/lvio/points_xyzirt`: the scans as XYZIRT, ring = Livox line;
+- `/lvio/d455_rect/compressed`: the colour stream undistorted to a pinhole camera.
+
+The result is about 5 GB.
+
+The common bags are **ROS 1 bags, written uncompressed**. LZ4 chunks written by the Python
+`rosbags` library use an LZ4 frame format that ROS 1's `roslz4` rejects
+(`ROSLZ4_DATA_ERROR: malformed data to decompress` as soon as a node subscribes). Uncompressed bags
+play in every ROS 1 version and need no decompression during real-time playback.
+All current algorithms are ROS 1 (`input` kind `common-ros1` in `algorithms.conf`). A ROS 2
+algorithm would get a second format, e.g. `common-ros2/` written by the same converter, and its
+own `input` kind.
+
+| Topic in the common bag | Content | Used by |
+| --- | --- | --- |
+| `/os_cloud_node/points` | original Ouster cloud, organized 128 × 1024 | COIN-LIO, FAST-LIVO2, r3live |
+| `/os_cloud_node/imu` | original Ouster IMU, 100 Hz | COIN-LIO, r3live |
+| `/alphasense_driver_ros/imu` | original Alphasense IMU, 200 Hz | FAST-LIVO2, LVI-SAM, Coco-LIC |
+| `/alphasense_driver_ros/cam0/compressed` | original cam0 fisheye, JPEG, 30 Hz | FAST-LIVO2, LVI-SAM |
+| `/lvio/points_xyzirt` | **derived**: the Ouster cloud in Velodyne layout (`x y z intensity` f32, `ring` u16, `time` f32 s from scan start), zero returns removed, sorted by time | LVI-SAM, Coco-LIC |
+| `/lvio/cam0_rect/compressed` | **derived**: cam0 undistorted to a pinhole camera (720 × 540, fx 272.29, fy 273.70, cx 357.52, cy 255.50, no distortion), JPEG, 30 Hz | r3live, Coco-LIC |
+
+The raw Ouster packets and cameras 1, 3 and 4 are dropped. Derived messages keep the header and
+bag time of their source message. Bags are written to `<name>.partial` first and renamed only when
+complete. They take about 93 MB per second of recording: ≈ 11 GB for stairs (119 s), ≈ 65 GB for all
+four sequences. Conversion takes well under a minute per sequence when the source is in the page
+cache, using ~125 MB of RAM.
+
+| Argument or setting | Purpose | Default |
+| --- | --- | --- |
+| `--data-dir DIR` | folder holding the dataset folders | `datasets` |
+| `--output-dir DIR` | where the common bags are written | `<data-dir>/<dataset>/common-ros1` |
+| `--duration SECONDS` | convert only the first SECONDS (quick tests) | whole bag |
+| `--force` | replace existing common bags | skip existing |
+| `--no-docker` | run the converter with the local `python3` (`PYTHON=` to choose one) | Docker |
+| `ONLY_SEQUENCES` | sequences to convert | all |
+
+## Step 2 Build the algorithm images
+
+```shell
+./steps/2_build_images/build_images.sh
+ONLY_ALGOS="r3live lvi-sam" ./steps/2_build_images/build_images.sh
+```
+
+Each `algorithms/<dir>/Dockerfile` is built as `<id>_<distro>`:
+
+| Image | Base | Notes |
+| --- | --- | --- |
+| `coin-lio_noetic` | Ubuntu 20.04, ROS Noetic | adds the message-generation dependency missing from upstream's `CMakeLists.txt` (parallel builds failed with `'coin_lio' does not name a type`) |
+| `fast-livo2_noetic` | Ubuntu 20.04, ROS Noetic | Sophus `a621ff`, `rpg_vikit`, `empy==3.3.4`; links its `Log/result/` to the run's `result/` (native TUM trajectory) |
+| `r3live_noetic` | Ubuntu 20.04, ROS Noetic | patches `Lidar_offset_to_IMU` to the Ouster value; adds `xvfb` (r3live always opens a GUI window) |
+| `lvi-sam_melodic` | Ubuntu 18.04, ROS Melodic | GTSAM 4.0 PPA, Ceres 1.14, `imu_filter_madgwick`, IMU adapter script |
+| `coco-lic_noetic` | Ubuntu 20.04, ROS Noetic | Ceres 2.0, PCL 1.13.1 from source, Coco-LIC pinned to `4ead7e4` |
+
+| Argument or setting | Purpose | Default |
+| --- | --- | --- |
+| `--no-cache` | build without the layer cache (fresh clones of the algorithm repos) | cache on |
+| `ONLY_ALGOS` | algorithms to build | all |
+
+The `mw-` repositories are cloned at their current HEAD. Rebuild with `--no-cache` to pick up new
+commits. Failed builds are listed at the end and do not stop the others.
+
+## Step 3 Run the algorithms
+
+```shell
+./steps/3_run_benchmark/run_benchmark.sh
+ONLY_ALGOS="fast-livo2" ONLY_SEQUENCES="stairs" ./steps/3_run_benchmark/run_benchmark.sh --no-rviz
+```
+
+For every (sequence, algorithm) pair, `algorithms/<dir>/run.sh` starts the image with the common
+bag mounted read-only and `results/<sequence>/<id>/` mounted as the output:
+
+- **play mode** (COIN-LIO, FAST-LIVO2, r3live, LVI-SAM): `roslaunch` the algorithm, `rosbag record`
+  its output topics, `rosbag play --clock` only the topics it needs, wait 10 s, stop the recorder,
+  then stop the algorithm with SIGINT, allowing up to 180 s for map saving.
+- **offline mode** (Coco-LIC): the algorithm reads the bag file itself and exits when done.
+
+A run's status (`ok` / `failed` / `interrupted`) is checked, not assumed. A run **fails** if:
+- `rosbag play` reports an error (`[FATAL]`, `ROSLZ4_…`, bag exceptions);
+- the algorithm exits before the end of the bag;
+- nothing was recorded on its output topics;
+- a result file the algorithm writes itself is missing (`LVIO_RESULT_GLOB`: the trajectory files of
+  FAST-LIVO2 and Coco-LIC).
+
+The `[lvio] FAILED: ...` lines say why.
+
+**Ctrl-C** stops the current run gracefully (stops the bag, closes the recorded bag, lets the
+algorithm save its map), records it as `interrupted` and ends Step 3. Press Ctrl-C a second time to
+abort without waiting.
+
+Each algorithm's frame-rate reduction, compressed→raw conversion and IMU adapter run inside
+its own launch file (see [section 3](#3-algorithms-and-their-inputs)). Algorithms that open GUI
+windows (r3live) show them on your display, or on a virtual X server (Xvfb) with `--no-rviz`. The run's
+config is copied into the result folder, and the files are owned by your user.
+
+| Argument or setting | Purpose | Default |
+| --- | --- | --- |
+| `--data-dir DIR` | folder holding the dataset folders | `datasets` |
+| `--common-dir DIR` | common ROS 1 bags from Step 1 | `<data-dir>/<dataset>/common-ros1` |
+| `--output-dir DIR` | results | `results` |
+| `--force` | delete and redo existing results | skip existing |
+| `--no-rviz` | run without RViz (headless) | RViz shown (needs an X display; runs `xhost +local:docker`) |
+| `--rate RATE` | `rosbag play` rate | `1.0` |
+| `ONLY_ALGOS`, `ONLY_SEQUENCES` | restrict the runs | all |
+
+Every run appends `finished_at,sequence,algorithm,status,seconds,output` to
+`results/run_summary.csv`.
+
+A single run without Step 3 (the output folder must be new or empty):
+
+```shell
+algorithms/r3live/run.sh datasets/COCO/common-ros1/stairs.bag results/stairs/r3live
+LVIO_RVIZ=0 LVIO_PLAY_RATE=0.5 algorithms/r3live/run.sh datasets/COCO/common-ros1/stairs.bag /tmp/r3live-test
+LVIO_DATASET=BUNKER algorithms/r3live/run.sh datasets/BUNKER/common-ros1/reg-1.bag /tmp/r3live-bunker
+```
+
+A single run shows RViz too; `LVIO_RVIZ=0` runs it headless.
+
+For a quick end-to-end test, make a short common bag (here 30 s) in a separate folder and point
+Step 3 at it:
+
+```shell
+ONLY_SEQUENCES=stairs ./steps/1_prepare_data/prepare_data.sh --duration 30 --output-dir /tmp/lvio-test/common-ros1
+ONLY_SEQUENCES=stairs ./steps/3_run_benchmark/run_benchmark.sh --common-dir /tmp/lvio-test/common-ros1 --output-dir /tmp/lvio-test/results --no-rviz
+ONLY_SEQUENCES=stairs ./steps/4_export/export.sh --common-dir /tmp/lvio-test/common-ros1 --results-dir /tmp/lvio-test/results
+ONLY_SEQUENCES=stairs ./steps/5_evaluate_trajectories/evaluate_trajectories.sh --results-dir /tmp/lvio-test/results
+```
+
+On a 30 s extract the trajectories cover only the first 30 s of the ground truth, so Step 5 marks
+them as partial (†).
+
+## Step 4 Export trajectories and maps
+
+```shell
+./steps/4_export/export.sh
+ONLY_ALGOS="coco-lic" ONLY_SEQUENCES="stairs" ./steps/4_export/export.sh --force
+```
+
+Step 4 exports every successful run, meaning its latest status in `results/run_summary.csv` is `ok`:
+- the trajectory as a **TUM** text file;
+- the map as a **PLY** file.
+
+`steps/4_export/export_results.py` reads what `algorithms/<dir>/export.yaml` names:
+- recorded topics;
+- files the algorithm wrote itself;
+- for Coco-LIC, the common bag.
+
+It runs in the `lvio-prepare` helper image (Python, no ROS) and never re-runs an algorithm.
+On a quad sequence an export takes 2–25 s, and rebuilding the Coco-LIC map about 45 s.
+All 19 exports take about 2.5 min with `--jobs 2`.
+Each export is written to `export.partial/` and renamed to `export/` when it is complete.
+
+```text
+results/<sequence>/<id>/export/
+├── <id>_trajectory_tum.txt             timestamp tx ty tz qx qy qz qw (space-separated, no header,
+│                                       9-decimal timestamps): body pose in the algorithm's world frame
+├── lvi-sam_keyframes_trajectory_tum.txt  LVI-SAM only: its loop-closed keyframe poses
+├── <id>_map.ply                        binary little-endian PLY in the same world frame:
+│                                       float x y z + float intensity (FAST-LIVO2: uchar red green blue)
+├── <id>_preview.png                    top (world XY) and side (world XZ) view of the map + trajectory
+└── export.json                         sources, frames, counts, time span, path length, notes, warnings
+```
+
+| Algorithm | Trajectory: source, world → body frame, rate | Map |
+| --- | --- | --- |
+| COIN-LIO | `/Odometry`, `camera_init` → Ouster IMU, 10 Hz | sum of `/cloud_registered` (dense scans) |
+| FAST-LIVO2 | its own TUM file `result/trajectory.txt` (LIO update time), `camera_init` → Alphasense IMU, 10 Hz | sum of the coloured `/cloud_registered`, which contains **only the points inside cam0's view** (FAST-LIVO2's colour map) |
+| r3live | `/aft_mapped_to_init` with the stamp of the paired `/cloud_registered`, `world` → Ouster IMU, 10 Hz | sum of `/cloud_registered` (dense scans, no colour) |
+| LVI-SAM | `/lvi_sam/lidar/mapping/odometry`, `odom` → LiDAR, 5 Hz; keyframes from the last `/lvi_sam/lidar/mapping/path` | its own `lvi_sam_map/cloudGlobal.pcd`: features of the loop-closed keyframes, so sparser than the others |
+| Coco-LIC | its own TUM file `data/<sequence>_LICO.txt`, `map` → Alphasense IMU, 100 Hz | **rebuilt** (Coco-LIC saves no map): the common bag's `/lvio/points_xyzirt` scans, each point placed with the trajectory at its own time and the LiDAR–IMU extrinsic of the run's `config/coco/lidar.yaml` |
+
+- **Timestamps.** FAST-LIVO2 and r3live stamp `/aft_mapped_to_init` with the publish time
+  (`ros::Time::now()`), which lags the measurement. For r3live the lag is a median of 0.13–4.6 s per
+  sequence, and up to 26 s on quad-easy. The export uses measurement times instead:
+  - FAST-LIVO2: its own trajectory file (`evo/pose_output_en` in `config/coco.yaml`);
+  - r3live: the `/cloud_registered` message published in the same iteration, stamped with the scan
+    end time. The pairing is checked with the bag record times: each odometry message must arrive
+    after its cloud and before the next one.
+- **Frames.** Every algorithm keeps its own world and body frames (listed in `export.json`).
+  Trajectories are not aligned to each other or to the ground truth.
+- **Map density.** Points are reduced to one per 5 cm voxel (centroid, mean intensity/colour).
+  `--voxel-size 0` keeps every point (e.g. ≈100 M points, 1.6 GB for COIN-LIO on stairs).
+- **Checks.** The run fails if:
+  - fewer than two poses remain, or values are not finite;
+  - a quaternion norm is off by more than 1e-3;
+  - the re-read PLY does not match its header.
+
+  Unsorted or repeated timestamps are fixed and noted in `export.json`.
+- **Warnings** (in `export.json` and the log): the trajectory ends more than 2 s before the common
+  bag, starts more than 10 s after it, or leaves the map's bounding box. `trajectory.coverage`
+  gives the exact offsets.
+
+| Argument or setting | Purpose | Default |
+| --- | --- | --- |
+| `--results-dir DIR` | results of Step 3 | `results` |
+| `--data-dir DIR` | folder holding the dataset folders | `datasets` |
+| `--common-dir DIR` | common ROS 1 bags (needed for the Coco-LIC map) | `<data-dir>/common-ros1` |
+| `--voxel-size METERS` | map voxel size, `0` keeps every point | `0.05` |
+| `--jobs N` | exports at the same time (each needs up to ~4 GB of RAM) | `1` |
+| `--force` | redo existing exports | skip existing |
+| `ONLY_ALGOS`, `ONLY_SEQUENCES` | restrict the exports | all |
+
+Every export appends `finished_at,sequence,algorithm,status,seconds,output` to
+`results/export_summary.csv`, with status `ok`, `failed` or `skipped` (a failed run).
+The log of each export is in `results/<sequence>/<id>/logs/export.log`.
+
+## Step 5 Evaluate the trajectories
+
+```shell
+./steps/5_evaluate_trajectories/evaluate_trajectories.sh
+ONLY_ALGOS="fast-livo2" ./steps/5_evaluate_trajectories/evaluate_trajectories.sh --rpe-delta 20
+```
+
+Evaluates every exported trajectory (Step 4) against the ground truth of its dataset (`ground_truth`
+in `steps/1_prepare_data/<dataset>_calibration.yaml`):
+- COCO: `ground_truth/gt-nc-<sequence>.csv`, 10 Hz, one pose per LiDAR scan, stamped with the scan's
+  header time;
+- BUNKER: the HDMapping ground-truth session, about 200 Hz, thinned to 10 Hz.
+
+Algorithms that do not support a dataset appear as `n/a`. It runs in the `lvio-eval` helper image (Python, evo 1.38.1, no ROS) and takes
+a few seconds for all runs. For each run:
+
+1. **Common body frame.** The algorithms report different body frames: the Ouster IMU, the
+   Alphasense IMU, or the LiDAR. Each trajectory is converted to the ground truth's body frame:
+   `T_world_gt = T_world_body · T_body_lidar · T_lidar_gt`.
+   - `T_body_lidar` is the LiDAR extrinsic the algorithm was configured with (`lidar_extrinsic` in
+     its `export.yaml`, read from the run's own config copy where it lives there).
+   - `T_lidar_gt` is one value for all algorithms: `base_frame` in
+     [coco_calibration.yaml](steps/1_prepare_data/coco_calibration.yaml).
+   - The dataset documentation calls the ground-truth frame `Base`. The two URDFs of the rig give
+     different `Base` → LiDAR offsets, and the data fits neither; it shows the ground truth is the
+     LiDAR (`os_sensor`) pose, within about 1 cm. So `T_lidar_gt` is the identity. The check is
+     described in `coco_calibration.yaml`.
+2. **Same instants for everyone.** Each trajectory is resampled at the ground-truth stamps:
+   - linear interpolation for the position, slerp for the rotation;
+   - only inside its own time span, and never across its own gaps longer than `--max-gap` (0.5 s);
+   - the algorithms' output rates (5, 10 or 100 Hz) and stamps (scan start or end, image times,
+     spline samples) therefore do not matter.
+3. **APE** (evo): translation and rotation error after SE(3) Umeyama alignment of the whole
+   trajectory (no scale), as in the LIO benchmark's Step 5.
+4. **RPE** (evo): translation [%] and rotation [deg/m] over `--rpe-delta` (10 m) segments.
+   - The segments are taken along the ground truth, so every algorithm is compared on the same
+     pairs.
+   - LIO's 1-frame RPE is not used: it depends on the output rate.
+5. **Time-shift diagnostic** (not applied): the translation APE for trajectory time shifts of
+   −0.2…+0.2 s. On good runs the best shift is 0.00–0.01 s, which confirms the stamps.
+
+```text
+results/
+├── evaluation/
+│   ├── trajectory_summary.csv      one row per (sequence, algorithm): status, coverage, APE, RPE, time shift
+│   ├── trajectory_summary.md       tables algorithms x sequences (best per sequence in bold) + notes
+│   └── trajectory_summary.tex      APE and RPE tables for LaTeX
+└── <sequence>/evaluation/trajectories/
+    ├── ground_truth_tum.txt        the ground truth as TUM (exact ns stamps)
+    ├── trajectories.png            top (x, y) and side (x, z) view, all algorithms aligned + ground truth
+    ├── ape_over_time.png           translation error over time
+    └── <id>/
+        ├── <id>_base_tum.txt       the trajectory in the ground-truth body frame, at the ground-truth stamps
+        ├── <id>_aligned_tum.txt    the same after SE(3) alignment, i.e. in the ground-truth frame
+        ├── metrics.json            coverage, alignment, APE, RPE, time shift, frames and extrinsics used
+        └── time_shift.csv          APE RMSE per time shift
+```
+
+- A run without an export appears as `missing`, with the reason (e.g. `run failed (Step 3)`).
+- A run covering less than 99 % of the ground truth is marked † in the tables. Its errors describe
+  only the part it covers, and Step 6 gives the details.
+- `<id>_base_tum.txt` and `ground_truth_tum.txt` share their stamps, so they can be passed to evo
+  directly, e.g. `evo_ape tum ground_truth_tum.txt coin-lio/coin-lio_base_tum.txt -a -p`.
+- Seven stairs ground-truth quaternions are printed with too few digits (e.g. `qw = -0.3`) and are
+  renormalised; the log says so.
+
+| Argument or setting | Purpose | Default |
+| --- | --- | --- |
+| `--results-dir DIR` | results of Steps 3 and 4 | `results` |
+| `--data-dir DIR` | folder holding the dataset folders | `datasets` |
+| `--max-gap SECONDS` | longest own gap a trajectory is interpolated across | `0.5` |
+| `--rpe-delta METERS` | RPE segment length along the ground truth | `10` |
+| `ONLY_ALGOS`, `ONLY_SEQUENCES` | re-evaluate only these runs (the summary keeps every run evaluated so far) | all |
+
+## Step 6 Ground-truth coverage
+
+```shell
+./steps/6_overlap/overlap.sh
+```
+
+How much of the ground truth each exported trajectory covers, per sequence. The LIO benchmark's
+Step 6 reports the duration ratio and the node-count ratio. The node ratio depends on the output
+rate, so here the coverage is measured on the ground-truth time line:
+
+| Column | Meaning |
+| --- | --- |
+| Covered | share of the ground-truth stamps inside the trajectory and not in one of its own gaps longer than `--max-gap`: the stamps Step 5 evaluates |
+| Start delay | first trajectory pose minus first ground-truth pose |
+| Ends early by | last ground-truth pose minus last trajectory pose (> 0: the trajectory stops early, e.g. r3live falling behind real time) |
+| Longest gap | longest interval between two trajectory poses |
+| Rate, Poses | median output rate and pose count |
+| Duration ratio | trajectory duration / ground-truth duration (LIO's "metric 1") |
+
+Output:
+- `results/evaluation/overlap_summary.{csv,md,tex}`;
+- `results/<sequence>/evaluation/overlap/<id>.json`.
+
+Arguments: `--results-dir`, `--data-dir`, `--max-gap` (as Step 5), `ONLY_ALGOS`, `ONLY_SEQUENCES`.
+
+# 3. Algorithms and their inputs
+
+Each algorithm gets what it uses: an IMU only where it uses one, the camera form it supports, and
+the image rate it was designed for. Details and code references: `algorithms/<ALGORITHM>/NOTES.md`.
+
+| Algorithm | LiDAR | IMU | Camera | Image rate |
+| --- | --- | --- | --- | --- |
+| COIN-LIO | Ouster, organized | Ouster | none (uses LiDAR intensity images) | – |
+| FAST-LIVO2 | Ouster | Alphasense | cam0 fisheye (`EquidistantCamera`), raw | 10 Hz (keep 1 of 3) |
+| r3live | Ouster | Ouster (r3live has no LiDAR–IMU rotation) | cam0 rectified | 15 Hz (keep 1 of 2) |
+| LVI-SAM | XYZIRT | Alphasense, rotated into LVI-SAM's expected axes, + madgwick orientation | cam0 fisheye (`KANNALA_BRANDT`), raw | 30 Hz (internal 20 Hz) |
+| Coco-LIC | XYZIRT | Alphasense | cam0 rectified | 10 Hz (uses 1 image per 0.1 s itself) |
+
+**BUNKER** (`config/bunker/` of each algorithm). The camera is always the D455F colour stream,
+undistorted; the IMU is always the Livox Mid-360's own.
+
+| Algorithm | LiDAR | IMU | Camera | Image rate |
+| --- | --- | --- | --- | --- |
+| COIN-LIO | – | – | – | not supported (needs the organized Ouster scan) |
+| FAST-LIVO2 | Livox CustomMsg (`lidar_type` 1, 4 lines) | Livox (g, scaled by FAST-LIVO2) | D455F rectified, raw `Pinhole` | 10 Hz (drop 1 of 3) |
+| r3live | Livox CustomMsg (`lidar_type` 1); the front end's "x > 0.7 m" filter is patched to a range check | Livox | D455F rectified | 15 Hz (all) |
+| LVI-SAM (experimental) | XYZIRT, 4 × 6000 range image (as the LIO benchmark's LIO-SAM Mid-360 config) | Livox × 9.80665, rotated into LVI-SAM's axes, + madgwick | D455F rectified, `PINHOLE` | 15 Hz |
+| Coco-LIC | Livox CustomMsg (`is_livox`); its tag filter is patched to accept Mid-360 points | Livox (`if_normalized`) | D455F rectified | 15 Hz in (uses 1 image per 0.1 s) |
+
+The extrinsics (Livox IMU ↔ LiDAR from the Mid-360 manual; LiDAR ↔ camera and the camera time
+offset of −0.03 s estimated from the data) are in
+[bunker_calibration.yaml](steps/1_prepare_data/bunker_calibration.yaml).
+
+The extrinsic chain (cam0 ↔ Alphasense IMU ↔ Ouster IMU ↔ LiDAR) combines three sources:
+- the Kalibr camera calibration in `datasets/COCO/cam_calibration`;
+- the Kalibr IMU–IMU transform from [ori-drs/halo_description](https://github.com/ori-drs/halo_description);
+- the Ouster factory metadata.
+
+The IMU–IMU rotation was checked against the bag data (within 1°).
+
+# 4. Results
+
+```text
+results/
+├── run_summary.csv                               Step 3: one line per run
+├── export_summary.csv                            Step 4: one line per export
+├── evaluation/                                   Steps 5-6: trajectory_summary.*, overlap_summary.*
+└── <sequence>/
+    ├── coin-lio/      recorded-coin-lio.bag      /Odometry, /cloud_registered
+    ├── fast-livo2/    recorded-fast-livo2.bag    /aft_mapped_to_init, /cloud_registered
+    │                  result/trajectory.txt      FAST-LIVO2's own TUM trajectory (LIO update times)
+    ├── r3live/        recorded-r3live.bag        /aft_mapped_to_init, /cloud_registered
+    │                  r3live_output/             r3live logs; its RGB map is written here only when
+    │                                             's' is pressed in its control panel (not with --no-rviz)
+    ├── lvi-sam/       recorded-lvi-sam.bag       /lvi_sam/lidar/mapping/{odometry,path,cloud_registered}
+    │                  lvi_sam_map/               PCD map saved on shutdown
+    └── coco-lic/      data/<sequence>_*.txt      TUM trajectory (no map is saved)
+```
+
+Every folder also contains:
+- `config/`: the exact config used;
+- `logs/`: `launch.log`, `play.log`, `record.log`, `recorded_topics.txt` (message count per output
+  topic), the ROS logs and `export.log` (Step 4);
+- `export/`: the TUM trajectory, PLY map, preview and `export.json` written by
+  [Step 4](#step-4-export-trajectories-and-maps).
+
+`results/<sequence>/evaluation/` holds the per-run evaluation of
+[Steps 5 and 6](#step-5-evaluate-the-trajectories).
+
+Not implemented yet:
+- evaluation of the maps (registration, cloud metrics and visual comparison, LIO Steps 7-9),
+  which needs a reference map;
+- conversion to HDMapping sessions.
+
+# 5. Adding an algorithm
+
+1. Add a row to [algorithms.conf](algorithms.conf): `distro | dir | id | input | datasets`.
+2. Create `algorithms/<dir>/` with:
+   - a `Dockerfile` that builds the algorithm (runs as root; the session fixes file ownership);
+   - `config/<name>.launch` that accepts the args `rviz`, `input_bag` and `out_dir`, and loads its
+     configs from `$(arg out_dir)/config/`;
+   - `run.sh`, which exports `LVIO_SETUP`, `LVIO_MODE`, `LVIO_LAUNCH`, `LVIO_PLAY_TOPICS` and
+     `LVIO_RECORD_TOPICS` (per dataset: Step 3 sets `LVIO_DATASET`) and calls
+     `common/docker_ros1_session.sh` (copy an existing one). Optional:
+     - `LVIO_RESULT_GLOB`: a file the algorithm writes itself that must exist afterwards (both modes);
+     - `LVIO_NEEDS_DISPLAY=1`: the algorithm opens GUI windows; the image then needs `xvfb`;
+     - `LVIO_SHUTDOWN_TIMEOUT`: seconds for a graceful stop, default 180;
+     - `LVIO_CONTAINER_HOME`, `LVIO_OUTPUT_SUBDIRS`.
+
+     The list with descriptions is at the top of `common/docker_ros1_session.sh`;
+   - `export.yaml` for Steps 4 and 5:
+     - where its trajectory and map come from: the sources `odometry`, `tum_file`, `path_last`;
+       `accumulate`, `pcd`, `reconstruct`, described at the top of
+       `steps/4_export/export_results.py`;
+     - its world and body frames;
+     - `lidar_extrinsic`: the LiDAR pose in its body frame, as the algorithm is configured.
+       Step 5 needs it to compare with the ground truth.
+
+     Copy the closest existing one;
+   - `NOTES.md` with the reasons for its inputs and parameters.
+3. Build it with `ONLY_ALGOS=<id> ./steps/2_build_images/build_images.sh`, then test it on a
+   short common bag (see the quick end-to-end test in Step 3), including Steps 4 and 5.
+
+# 6. Troubleshooting
+
+| Symptom | Cause / fix |
+| --- | --- |
+| `ROSLZ4_DATA_ERROR: malformed data to decompress` | Common bags made by an older version of Step 1 (LZ4, in `datasets/COCO/common/`). Re-run Step 1, which now writes `common-ros1/`, and delete the old `common/` folder. |
+| A bag "plays fine" in a manual test but the algorithm gets nothing | `rosbag play` does not read message data when nobody subscribes. Test with a subscriber (e.g. `rosbag record` or `rostopic echo`) running. |
+| Step 3 skips a run (`... exists (use --force to redo)`) | The result folder is not empty, e.g. from an earlier failed run. Use `--force` or delete `results/<sequence>/<id>/`. |
+| An image build failed | `docker buildx history ls`, then `docker buildx history logs <build id>` show the full log. |
+| `REQUIRED process [...] has died! ... exit code -11` after `cannot open display` in `logs/launch.log` | The algorithm opens a GUI window. Set `LVIO_NEEDS_DISPLAY=1` in its `run.sh` and add `xvfb` to its image (as for r3live). |
+| A run `failed` | Read the `[lvio] FAILED:` lines, then `logs/launch.log` / `logs/play.log` in its result folder. |
+| `ERROR: RViz is shown by default but DISPLAY is not set` | No X session (e.g. over SSH). Run with `--no-rviz` (or `LVIO_RVIZ=0` for a single `run.sh`). |
+| `validate.sh` reports `FAIL` | Fix what the line names: Docker access, or a missing or unreadable bag in `datasets/COCO/`. |
+| Step 4 skips a run (`... export exists` or `its latest run is 'failed'`) | Use `--force` to redo an export. A failed run has nothing to export; redo the run in Step 3. |
+| An export `failed` | Read the `[export] FAILED:` line in `results/<sequence>/<id>/logs/export.log`. |
+| Step 5/6 list a run as `missing` | It has no Step 4 export; the reason column says why (`run failed (Step 3)`, `no export (Step 4)`). |
+| Step 5 marks a run with † | It covers less than 99 % of the ground truth (see Step 6). Its errors describe only the covered part. |
+| `export.json` warns `the trajectory ends N s before the end of the input bag` | The algorithm fell behind real time, and the recorder stopped 10 s after the bag ended (`LVIO_DRAIN_SECONDS` in `common/ros1_session.sh`). It stopped before the algorithm caught up. Seen for r3live on quad-easy and quad-medium. |

@@ -1,0 +1,98 @@
+%YAML:1.0
+
+# LVI-SAM visual odometry on COCO (Newer College Multi-Cam 2021). Values: ../NOTES.md.
+# Base: config/params_camera.yaml of LVI-SAM. Extrinsics are against the virtual IMU frame V.
+
+# Project
+project_name: "lvi_sam"
+
+#common parameters
+imu_topic: "/lvio/imu_v/data"
+image_topic: "/lvio/cam0/image_raw"
+point_cloud_topic: "lvi_sam/lidar/deskew/cloud_deskewed"
+
+# Lidar Params
+use_lidar: 1                     # whether use depth info from lidar or not
+lidar_skip: 3                    # skip this amount of scans
+align_camera_lidar_estimation: 1 # align camera and lidar estimation for visualization
+
+# lidar to camera extrinsic: points LiDAR -> camera-centred FLU frame (x = optical z, y = -optical x, z = -optical y)
+lidar_to_cam_tx: -0.106073
+lidar_to_cam_ty: 0.079792
+lidar_to_cam_tz: 0.024078
+lidar_to_cam_rx: -0.000548
+lidar_to_cam_ry: 0.008235
+lidar_to_cam_rz: 0.001447
+
+# camera model: cam0 fisheye, Kalibr pinhole + equidistant == KANNALA_BRANDT (k2..k5 = Kalibr k1..k4)
+model_type: KANNALA_BRANDT
+camera_name: camera
+
+# Mono camera config
+image_width: 720
+image_height: 540
+projection_parameters:
+   k2: -0.04217
+   k3: -0.00413
+   k4: 0.00179
+   k5: -0.00063
+   mu: 352.779
+   mv: 354.609
+   u0: 359.035
+   v0: 260.546
+fisheye_mask: "/config/fisheye_mask_720x540.jpg"   # unused (fisheye: 0)
+
+#imu parameters       The more accurate parameters you provide, the worse performance
+acc_n: 0.02         # accelerometer measurement noise standard deviation.
+gyr_n: 0.01         # gyroscope measurement noise standard deviation.
+acc_w: 0.002        # accelerometer bias random work noise standard deviation.
+gyr_w: 4.0e-5       # gyroscope bias random work noise standard deviation.
+g_norm: 9.81        #
+
+# Extrinsic parameter between IMU and Camera.
+estimate_extrinsic: 0   # 0  Have an accurate extrinsic parameters. We will trust the following imu^R_cam, imu^T_cam, don't change it.
+#Rotation from camera frame to imu frame, imu^R_cam (R_V_cam0)
+extrinsicRotation: !!opencv-matrix
+   rows: 3
+   cols: 3
+   dt: d
+   data: [ 0.001446, -0.008235, -0.999965,
+          -0.999999,  0.000548, -0.001451,
+           0.000559,  0.999966, -0.008234]
+#Translation from camera frame to imu frame, imu^T_cam (cam0 origin in V)
+extrinsicTranslation: !!opencv-matrix
+   rows: 3
+   cols: 1
+   dt: d
+   data: [-0.048904, -0.047538, -0.009542]
+
+#feature traker paprameters
+max_cnt: 150            # max feature number in feature tracking
+min_dist: 20            # min distance between two features
+freq: 20                # frequence (Hz) of publish tracking result. At least 10Hz for good estimation. If set 0, the frequence will be same as raw image
+F_threshold: 1.0        # ransac threshold (pixel)
+show_track: 1           # publish tracking image as topic
+equalize: 1             # if image is too dark or light, trun on equalize to find enough features
+fisheye: 0              # COCO images have no circular border; the shipped mask is for LVI-SAM's own lens
+
+#optimization parameters
+max_solver_time: 0.035   # max solver itration time (ms), to guarantee real time
+max_num_iterations: 10   # max solver itrations, to guarantee real time
+keyframe_parallax: 10.0  # keyframe selection threshold (pixel)
+
+#unsynchronization parameters
+estimate_td: 0           # online estimate time offset between camera and imu
+td: 0.0018               # Kalibr: t_imu = t_cam + 0.0018. readed image clock + td = real image clock (IMU clock)
+
+#rolling shutter parameters
+rolling_shutter: 0       # 0: global shutter camera, 1: rolling shutter camera
+rolling_shutter_tr: 0    # unit: s. rolling shutter read out time per frame (from data sheet).
+
+#loop closure parameters
+loop_closure: 1                    # start loop closure
+skip_time: 0.0
+skip_dist: 0.0
+debug_image: 0                      # save raw image in loop detector for visualization prupose; you can close this function by setting 0
+match_image_scale: 0.5
+vocabulary_file: "/config/brief_k10L6.bin"
+brief_pattern_file: "/config/brief_pattern.yml"

@@ -1,0 +1,33 @@
+# Step 4 export and Step 5 evaluation of a Coco-LIC run (keys explained in steps/4_export/export_results.py and steps/5_evaluate_trajectories/evaluate_trajectories.py).
+frames:
+  world: map (gravity aligned, z up)
+  body: Alphasense IMU (z down)
+lidar_extrinsic:                   # Step 5: LiDAR (os_sensor) pose in the body frame, as Coco-LIC is configured
+  rotation: {file: config/coco/lidar.yaml, key: lidar0.Extrinsics.Rot}    # row-major
+  translation: {file: config/coco/lidar.yaml, key: lidar0.Extrinsics.Trans}
+trajectory:
+  source: tum_file                 # Coco-LIC's own TUM file, 100 Hz samples of its continuous-time trajectory
+  file: data/*_LICO.txt
+map:
+  # Coco-LIC saves no map. Rebuilt from the scans it used (common bag), each point placed with the
+  # trajectory at its own time (header = scan start + 'time'), as Coco-LIC models it.
+  source: reconstruct
+  topic: /lvio/points_xyzirt
+  time_field: time
+  extrinsic: {file: config/coco/lidar.yaml, key: lidar0.Extrinsics}   # LiDAR pose in the IMU: Trans, Rot row-major
+  min_range: {file: config/coco/lidar.yaml, key: VLP16.min_distance}
+  max_range: {file: config/coco/lidar.yaml, key: VLP16.max_distance}
+  attribute: intensity
+  description: rebuilt from the common bag's scans and Coco-LIC's trajectory (not an output of Coco-LIC)
+datasets:                          # per-dataset overrides of the keys above (merged into them)
+  BUNKER:
+    frames:
+      world: map (gravity aligned, z up)
+      body: Livox Mid-360 IMU
+    lidar_extrinsic:
+      rotation: {file: config/bunker/lidar.yaml, key: lidar0.Extrinsics.Rot}
+      translation: {file: config/bunker/lidar.yaml, key: lidar0.Extrinsics.Trans}
+    map:                           # the common bag's /lvio/points_xyzirt is made from the Livox scans (Step 1)
+      extrinsic: {file: config/bunker/lidar.yaml, key: lidar0.Extrinsics}
+      min_range: {file: config/bunker/lidar.yaml, key: Livox.min_distance}
+      max_range: {file: config/bunker/lidar.yaml, key: Livox.max_distance}

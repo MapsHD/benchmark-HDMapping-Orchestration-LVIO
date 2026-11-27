@@ -1,0 +1,21 @@
+<launch>
+    <!-- LVIO benchmark: Coco-LIC on the COCO common bag (see ../NOTES.md).
+         Offline: the node reads the bag itself (no rosbag play, no /clock) and exits when done.
+         project_path = out_dir, so the configs are read from out_dir/config/ (copied by the host)
+         and the TUM trajectory is written to out_dir/data/<bag name>_*.txt. -->
+    <arg name="rviz" default="false"/>
+    <arg name="input_bag" default=""/>
+    <arg name="out_dir" default="/lvio/out"/>
+
+    <node pkg="cocolic" type="odometry_node" name="cocolic_odometry" output="screen" required="true">
+        <param name="project_path" type="string" value="$(arg out_dir)"/>
+        <param name="config_path" type="string" value="$(arg out_dir)/config/ct_odometry_coco.yaml"/>
+        <param name="bag_path" type="string" value="$(arg input_bag)"/>
+        <param name="pasue_time" type="double" value="-1"/>
+        <param name="verbose" type="bool" value="false"/>
+    </node>
+
+    <group if="$(arg rviz)">
+        <node pkg="rviz" type="rviz" name="rviz_odom" output="log" args="-d $(find cocolic)/config/coco.rviz"/>
+    </group>
+</launch>

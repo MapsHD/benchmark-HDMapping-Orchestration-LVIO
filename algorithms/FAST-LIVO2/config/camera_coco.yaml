@@ -1,0 +1,14 @@
+# cam0 of COCO, original fisheye image (Kalibr 2021-07-01, pinhole + equidistant).
+# Loaded into the laserMapping node namespace (vikit camera_loader).
+cam_model: EquidistantCamera
+cam_width: 720
+cam_height: 540
+scale: 1.0
+cam_fx: 352.779
+cam_fy: 354.609
+cam_cx: 359.035
+cam_cy: 260.546
+k1: -0.04217
+k2: -0.00413
+k3: 0.00179
+k4: -0.00063
